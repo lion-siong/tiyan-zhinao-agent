@@ -20,6 +20,7 @@ __pycache__/
 *.py[cod]
 *$py.class
 .pytest_cache/
+.pytest-temp-*/
 .pytest_tmp/
 .mypy_cache/
 .ruff_cache/
@@ -64,6 +65,7 @@ data/*
 # 论文全文、派生证据与可重建索引
 # 论文 PDF 是否可公开再分发必须逐篇核对许可，默认不进入 Git。
 *.pdf
+!提交材料/体研智脑Agent_技术报告.pdf
 knowledge_base/**
 !knowledge_base/README.md
 !knowledge_base/manifest.json

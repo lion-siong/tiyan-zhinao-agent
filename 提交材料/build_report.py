@@ -79,7 +79,7 @@ ABSTRACT = (
     "系统将外部公开文献元数据与用户主动上传的本地 PDF 隔离，要求关键结论返回论文题名、文件名、"
     "页码和原文，并在证据不足时停止推断。学习模块支持六种题型、客观题自动评分、主观题评分细则、"
     "五维掌握度、错题本和下一轮针对性复习。当前版本包含 20 个功能页面、12 篇已登记论文和 1095 条"
-    "页级证据；自动化测试 74 项全部通过，运行服务健康检查返回 ok。报告同时说明系统在 OCR、"
+    "页级证据；自动化测试 82 项全部通过，运行服务健康检查返回 ok。报告同时说明系统在 OCR、"
     "多用户权限、自动综述和 LangGraph 编排方面的边界，并给出可复现的部署、测试和验收路径。"
 )
 
@@ -115,7 +115,7 @@ CONTENT: list[tuple[str, Any]] = [
         "实现 Semantic Scholar Function Calling 检索流程：模型先整理研究对象、核心变量、结局指标和同义词。随后调用公开检索工具，最后依据真实元数据生成研究现状；未配置模型时明确降级为规则整理。",
         "建立 PDF 页级证据链：文件哈希校验、文本提取、按页切分、BM25 与 Chroma 混合检索、EvidenceRef 来源对象和页面展示。",
         "实现 ResearchMind 六阶段顺序工作流和六种题型学习闭环，保存题目、答案、评分细则、答题记录、掌握度和错题本。",
-        "以 74 项自动化测试、语法检查和服务健康检查形成可复现证据，并在报告中明确当前能力边界。",
+        "以 82 项自动化测试、语法检查和服务健康检查形成可复现证据，并在报告中明确当前能力边界。",
     ]),
     ("h1", "2 需求分析与设计目标"),
     ("h2", "2.1 用户与任务场景"),
@@ -267,8 +267,8 @@ CONTENT: list[tuple[str, Any]] = [
         "headers": ["验证项", "执行方式", "结果"],
         "widths_cm": [4.2, 8.0, 3.9],
         "rows": [
-            ["自动化测试", "python -m pytest -q", "74 passed，约 15 秒"],
-            ["测试收集", "python -m pytest --collect-only -q", "74 tests collected"],
+            ["自动化测试", "python -m pytest -q", "82 passed，约 15 秒"],
+            ["测试收集", "python -m pytest --collect-only -q", "82 tests collected"],
             ["语法检查", "python -m compileall -q ...", "COMPILE_OK"],
             ["文献库", "读取 manifest.json 与 evidence_chunks.json", "12 篇论文，1095 条片段"],
             ["服务健康", "GET /_stcore/health", "HTTP 200，响应 ok"],
@@ -288,7 +288,7 @@ CONTENT: list[tuple[str, Any]] = [
     ("p", "后续工作按风险和价值排序：第一，增加 OCR、跨页段落合并和表格提取，同时保持页码来源；第二，加入 DOI 回查、引用跳转和文献更新监控；第三，使用真实答题数据校准掌握度并增加评测集；第四，在保留现有接口的前提下评估 LangGraph、重排序和查询改写；第五，增加认证、租户隔离、上传保留策略和结构化日志。任何新增能力都应继续满足真实来源、模拟标注和未执行不虚报三条底线。"),
     ("h1", "10 结论"),
     ("p", "体研智脑 Agent 将体育科研中的任务规划、公开检索、PDF 阅读、页级证据、学术分析、数据分析和学习测评组织为可检查的本地流程。系统的主要价值不在于替用户写出一篇论文，而在于让每一步都能说明依据、回退和边界。当前实现已经具备可运行界面、真实文献库、混合检索、六阶段学习闭环和自动化测试，同时明确保留网络、OCR、自动综述和多用户部署方面的限制。"),
-    ("p", "对参赛项目而言，技术报告、代码仓库、Prompt 演进记录和演示视频应共同证明能力不是静态页面。提交前仍需补齐公开仓库、细粒度 Git 历史、至少三组真实 Prompt 链和 5 至 8 分钟演示视频；本报告只覆盖技术实现与可复现性部分，不代替其他强制材料。"),
+    ("p", "对参赛项目而言，技术报告、代码仓库、Prompt 演进记录和演示视频应共同证明能力不是静态页面。当前已建立真实 Git 根提交与安全整改提交，并整理了三组 Prompt 链记录和演示脚本；正式提交前仍需完成公开仓库、原始对话或截图证据导出、5 至 8 分钟演示视频和干净电脑复现。本报告只覆盖技术实现与可复现性部分，不代替其他强制材料。"),
     ("h1", "参考资料"),
 ]
 
@@ -522,7 +522,7 @@ def build_docx() -> None:
         ("文档类型", "参赛技术报告"),
         ("项目版本", "V1.0"),
         ("验证环境", "Python 3.12.16 / Streamlit 1.66.1"),
-        ("完成日期", "2026 年 11 月 11 日"),
+        ("完成日期", "2026 年 11 月 12 日"),
     ]
     for row_idx, (label, value) in enumerate(meta_rows):
         for col_idx, text in enumerate((label, value)):
@@ -966,7 +966,7 @@ def build_pdf() -> None:
         [Paragraph("文档类型", styles["table_label"]), Paragraph("参赛技术报告", styles["table"])],
         [Paragraph("项目版本", styles["table_label"]), Paragraph("V1.0", styles["table"])],
         [Paragraph("验证环境", styles["table_label"]), Paragraph("Python 3.12.16 / Streamlit 1.66.1", styles["table"])],
-        [Paragraph("完成日期", styles["table_label"]), Paragraph("2026 年 11 月 11 日", styles["table"])],
+        [Paragraph("完成日期", styles["table_label"]), Paragraph("2026 年 11 月 12 日", styles["table"])],
     ]
     meta_table = Table(
         meta_data,
