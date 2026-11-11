@@ -82,7 +82,7 @@
 | 持久化 | SQLite、JSON | 论文库、学习记录、证据索引和研究框架 |
 | 配置 | python-dotenv | 从 `.env` 读取密钥和运行参数 |
 | 外部接口 | OpenAI 兼容接口、Semantic Scholar、arXiv、OpenAlex、Crossref、Zotero Web API | 问答、Function Calling、文献元数据与同步 |
-| 测试 | Pytest | 74 个自动化测试 |
+| 测试 | Pytest | 82 个自动化测试 |
 
 ## 四、快速开始
 
@@ -232,13 +232,13 @@ Copy-Item .env.example .env
 3. 文献证据问答可以显示论文题名、文件名、页码和原文。
 4. 未配置 API Key 时页面不崩溃，并明确标注模拟回答或本地规则模式。
 5. AI 学习测评提交后同时显示用户答案、标准答案、得分和评分依据。
-6. 执行 `pytest -q` 后得到 `74 passed`。
+6. 执行 `pytest -q` 后得到 `82 passed`。
 
 首次语义检索需要联网下载 `intfloat/multilingual-e5-small`。下载失败时系统自动回退 BM25，不阻断本地演示。若只做离线演示，可提前运行一次向量构建，并在演示前确认 `knowledge_base/chroma/`、论文清单和证据索引均可读。
 
 ### 10. 复现性声明
 
-本项目当前可核验结果为：74 项自动化测试通过、Python 语法检查通过、Streamlit 健康检查返回 `ok`、12 篇登记论文与 1095 条页级证据可读。上述结果只说明当前工作区的软件功能状态，不代表已经完成公开仓库、真实 Prompt 链或现场演示视频等参赛流程材料。
+本项目当前可核验结果为：82 项自动化测试通过、Python 语法检查通过、Streamlit 健康检查返回 `ok`、12 篇登记论文与 1095 条页级证据可读。上述结果只说明当前工作区的软件功能状态，不代表已经完成公开仓库、真实 Prompt 导出、现场演示视频或干净电脑复现等参赛流程材料。
 
 ## 五、推荐使用流程
 
@@ -316,6 +316,9 @@ Copy-Item .env.example .env
 ├── .env.example                   配置模板
 ├── README.md                      项目说明
 ├── 技术文档.md                    技术设计与维护文档
+├── docs/
+│   ├── ARCHITECTURE.md            当前系统架构、数据流与能力边界
+│   └── SECURITY_AND_PRIVACY.md    密钥、隐私和参赛导出规范
 ├── .streamlit/
 │   └── config.toml                主题配置
 ├── agents/
@@ -331,7 +334,7 @@ Copy-Item .env.example .env
 ├── researchmind/
 │   ├── models.py                  强类型数据模型
 │   ├── storage.py                 SQLite 持久化
-│   ├── agents.py                  五个学术与学习 Agent
+│   ├── agents.py                  阅读、争议、知识、测评与辅导 Agent
 │   ├── collectors.py              OpenAlex/Crossref 与开放 PDF
 │   ├── workflow.py                六阶段顺序编排
 │   ├── workbench.py               科研工作台逻辑与导出
@@ -349,7 +352,8 @@ Copy-Item .env.example .env
 │   ├── semantic_scholar.py        Semantic Scholar 公开元数据检索
 │   ├── arxiv_search.py            arXiv 公开预印本回退
 │   ├── citation_formatter.py      GB/T 7714 风格引用整理
-│   └── data_analysis.py           CSV/XLSX 分析
+│   ├── data_analysis.py           CSV/XLSX 分析
+│   └── security_audit.py          本地目录和参赛包敏感信息审计
 ├── knowledge_base/
 │   ├── manifest.json              12 篇论文书目清单
 │   ├── framework.json             九维研究框架
@@ -362,7 +366,7 @@ Copy-Item .env.example .env
 │   ├── user_papers/               用户主动上传的 PDF 与分页证据
 │   └── models/                    嵌入模型缓存
 ├── outputs/                       日志和输出文件
-└── tests/                         74 个自动化测试
+└── tests/                         82 个自动化测试
 ```
 
 ## 八、主要配置项
@@ -401,6 +405,7 @@ Copy-Item .env.example .env
 ## 九、数据与安全
 
 - `.env` 已被 `.gitignore` 忽略，密钥不会写入公开文档。
+- 参赛导出前运行 `.\.venv\Scripts\python.exe -m tools.security_audit . --json`；工具只报告路径、规则和行号，不打印密钥原文。
 - `data/` 下的 SQLite 数据库、模型缓存和用户数据默认不纳入版本管理。
 - 用户上传 PDF 保存在 `data/user_papers/<SHA-256>/`，分页证据与 PDF 同目录，Chroma 位于 `data/user_papers/chroma/`。
 - 用户论文库使用独立集合 `user_uploaded_papers`；Semantic Scholar 和 arXiv 元数据不会写入该集合。
@@ -411,6 +416,9 @@ Copy-Item .env.example .env
 - 本项目不爬取知网；公开检索仅使用 Semantic Scholar 与 arXiv 官方接口。
 - Semantic Scholar/arXiv 的摘要可能缺失或截断，综述和研究现状必须回到原文核验。
 - 本应用默认是本机单用户工具，尚未实现账号、租户、权限和审计日志。
+
+完整的密钥轮换、隐私和论文版权检查流程见
+[docs/SECURITY_AND_PRIVACY.md](docs/SECURITY_AND_PRIVACY.md)。
 
 ## 十、能力边界
 
@@ -424,9 +432,24 @@ Copy-Item .env.example .env
 - Semantic Scholar、arXiv、OpenAlex、Crossref、Zotero、模型接口和向量模型下载依赖网络服务可用性。
 - 项目定位为竞赛演示和本地科研辅助工具，不应直接作为生产级多用户系统部署。
 
-## 十一、文档
+## 十一、Git 与真实开发边界
+
+项目原有原型于 2026 年首次纳入 Git 管理，根提交为 `84a79ee`，用于保存当时可运行的基线。该提交不代表更早的开发历史。后续安全、架构、材料和修复工作按真实完成顺序提交，不补造时间线。
+
+仓库使用明确的本机局部身份完成首次提交。正式公开仓库前，应设置用户自己的 Git 名称和邮箱：
+
+```powershell
+git config --local user.name "你的姓名"
+git config --local user.email "你的邮箱"
+```
+
+提交前必须确认暂存清单不包含 `.env`、数据库、PDF、日志、浏览器资料和用户答题数据。
+
+## 十二、文档
 
 - 项目使用与快速开始：`README.md`
 - 架构、数据模型、接口、测试与部署：`技术文档.md`
+- 当前架构与能力边界：[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
+- 安全、隐私与导出规范：[docs/SECURITY_AND_PRIVACY.md](docs/SECURITY_AND_PRIVACY.md)
 
 技术文档包含模块职责、数据流、SQLite 表结构、BM25 与混合检索参数、六 Agent 工作流、配置项、测试覆盖、部署建议和后续扩展路线。
