@@ -1,0 +1,46 @@
+# 密钥与本地环境
+.env
+.env.*
+!.env.example
+.venv/
+venv/
+env/
+
+# Python 缓存和测试缓存
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.coverage
+htmlcov/
+.tmp/
+
+# 编辑器与系统临时文件
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+*.tmp
+*.restore
+
+# 用户数据与生成文件
+data/*
+!data/README.md
+knowledge_base/**
+!knowledge_base/README.md
+!knowledge_base/manifest.json
+!knowledge_base/pdfs/
+!knowledge_base/pdfs/*.pdf
+!knowledge_base/index/
+!knowledge_base/index/evidence_chunks.json
+!knowledge_base/framework.json
+outputs/*
+!outputs/README.md
+
+# 构建产物
+build/
+dist/
+*.egg-info/

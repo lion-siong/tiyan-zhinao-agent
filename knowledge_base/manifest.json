@@ -1,0 +1,351 @@
+{
+  "schema_version": 1,
+  "library_name": "体研智脑内置体育科研文献库",
+  "description": "收录经用户提供并登记的真实体育科研论文，正文仅用于本地证据检索与页码溯源。",
+  "documents": [
+    {
+      "document_id": "ass-2026-157601",
+      "file_name": "ass_2401349.pdf",
+      "title": "大学生体育锻炼行为的影响因素研究",
+      "subtitle": "",
+      "authors": [
+        "夏慧琴"
+      ],
+      "journal": "社会科学前沿",
+      "year": "2026",
+      "volume": "15",
+      "issue": "7",
+      "pages": "533-546",
+      "doi": "10.12677/ass.2026.157601",
+      "source_url": "https://doi.org/10.12677/ass.2026.157601",
+      "keywords": [
+        "体育锻炼",
+        "大学生",
+        "影响因素"
+      ],
+      "license": "CC BY 4.0",
+      "page_count": 14,
+      "pdf_sha256": "9e15979185b07e1f92bdc3a09acfdd2358d4fcd35ac32557bd51f94cbc59643e"
+    },
+    {
+      "document_id": "aps-2026-143067",
+      "file_name": "aps_3081402.pdf",
+      "title": "大学生体质健康影响因素与提升对策研究",
+      "subtitle": "——基于山东省部分高校的问卷调查",
+      "authors": [
+        "彭玲",
+        "王俊"
+      ],
+      "journal": "体育科学进展",
+      "year": "2026",
+      "volume": "14",
+      "issue": "3",
+      "pages": "464-471",
+      "doi": "10.12677/aps.2026.143067",
+      "source_url": "https://doi.org/10.12677/aps.2026.143067",
+      "keywords": [
+        "大学生",
+        "体质健康",
+        "影响因素"
+      ],
+      "license": "CC BY 4.0",
+      "page_count": 8,
+      "pdf_sha256": "2d6104cfa9f300cf8c1843b4a9f66ec286dfb5b91233bae5d4d47c17f3074723"
+    },
+    {
+      "document_id": "doi-10-3389-fpsyg-2025-1428365",
+      "file_name": "gao-2025-exercise-self-efficacy.pdf",
+      "title": "Correlational research on college students’ physical exercise behavior, academic engagement, and self-efficacy",
+      "subtitle": "",
+      "authors": [
+        "Wei Gao",
+        "Jiaxin Chen",
+        "Zhi Tu",
+        "Ming Li"
+      ],
+      "journal": "Frontiers in Psychology",
+      "year": "2025",
+      "volume": "16",
+      "issue": "无",
+      "pages": "1428365",
+      "doi": "10.3389/fpsyg.2025.1428365",
+      "source_url": "https://doi.org/10.3389/fpsyg.2025.1428365",
+      "keywords": [
+        "physical exercise behavior",
+        "academic engagement",
+        "self-efficacy",
+        "college students"
+      ],
+      "license": "CC BY 4.0",
+      "page_count": 9,
+      "pdf_sha256": "bc98d05eae601abb4866e8584ed9e91e914afa12f70a1a7cfe2c7253f42e4d88"
+    },
+    {
+      "document_id": "doi-10-3390-jcm12030777",
+      "file_name": "huang-2023-social-ecological.pdf",
+      "title": "Validation of Physical Activity Correlates Questionnaire from Social Ecological Model in College Students",
+      "subtitle": "",
+      "authors": [
+        "Meirong Huang",
+        "Haichun Sun",
+        "Han Chen",
+        "Yanping Zhang",
+        "Kaitlyn T. Adams",
+        "Zan Gao"
+      ],
+      "journal": "Journal of Clinical Medicine",
+      "year": "2023",
+      "volume": "12",
+      "issue": "3",
+      "pages": "777",
+      "doi": "10.3390/jcm12030777",
+      "source_url": "https://doi.org/10.3390/jcm12030777",
+      "keywords": [
+        "social ecological model",
+        "physical activity correlates",
+        "questionnaire validation",
+        "college students"
+      ],
+      "license": "CC BY 4.0",
+      "page_count": 12,
+      "pdf_sha256": "cbb3e66c830073a8c6d32152a99705a39cf4107843f2fb8f8e3266bd5e8801d8"
+    },
+    {
+      "document_id": "doi-10-1371-journal-pone-0345759",
+      "file_name": "liang-2026-app-pe.pdf",
+      "title": "App-supported versus conventional college physical education: Effects on standardized physical fitness scores and exercise motivation in Chinese university students",
+      "subtitle": "",
+      "authors": [
+        "Xilin Liang",
+        "Zenan Wang"
+      ],
+      "journal": "PLoS ONE",
+      "year": "2026",
+      "volume": "21",
+      "issue": "3",
+      "pages": "e0345759",
+      "doi": "10.1371/journal.pone.0345759",
+      "source_url": "https://doi.org/10.1371/journal.pone.0345759",
+      "keywords": [
+        "app-supported physical education",
+        "physical fitness",
+        "exercise motivation",
+        "university students"
+      ],
+      "license": "CC BY 4.0",
+      "page_count": 16,
+      "pdf_sha256": "44a33c4c4d59c01cb32ecd88c8dc71b210a4b7b16ac474d40f0d4f29042c5f20"
+    },
+    {
+      "document_id": "doi-10-1371-journal-pone-0297117",
+      "file_name": "niu-2024-taichi-fitness.pdf",
+      "title": "Effects of Bafa Wubu and He-Style Tai Chi exercise training on physical fitness of overweight male university students: A randomized controlled trial",
+      "subtitle": "",
+      "authors": [
+        "Yantao Niu",
+        "Rojapon Buranarugsa",
+        "Piyathida Kuhirunyaratn"
+      ],
+      "journal": "PLoS ONE",
+      "year": "2024",
+      "volume": "19",
+      "issue": "1",
+      "pages": "e0297117",
+      "doi": "10.1371/journal.pone.0297117",
+      "source_url": "https://doi.org/10.1371/journal.pone.0297117",
+      "keywords": [
+        "Tai Chi",
+        "Bafa Wubu",
+        "physical fitness",
+        "overweight university students",
+        "randomized controlled trial"
+      ],
+      "license": "CC BY 4.0",
+      "page_count": 14,
+      "pdf_sha256": "bdcb5f56513f7e111d97999358840652a4e734e777d7f4db0165efc79b208f8b"
+    },
+    {
+      "document_id": "doi-10-3389-fpsyg-2023-1103109",
+      "file_name": "sheng-2023-peer-support.pdf",
+      "title": "Exercise health belief model mediates the relationship between physical activity and peer support among Chinese college students: A cross-sectional survey",
+      "subtitle": "",
+      "authors": [
+        "Jiazhi Sheng",
+        "Lamei Gong",
+        "Jian Zhou"
+      ],
+      "journal": "Frontiers in Psychology",
+      "year": "2023",
+      "volume": "14",
+      "issue": "无",
+      "pages": "1103109",
+      "doi": "10.3389/fpsyg.2023.1103109",
+      "source_url": "https://doi.org/10.3389/fpsyg.2023.1103109",
+      "keywords": [
+        "physical activity",
+        "peer support",
+        "exercise health belief model",
+        "perceived benefits",
+        "perceived barriers",
+        "college students"
+      ],
+      "license": "CC BY 4.0",
+      "page_count": 9,
+      "pdf_sha256": "4da769dce0025cd79f602f6215e49c7e132fe50a6cdc16f7ea1ae7c4c2868ba0"
+    },
+    {
+      "document_id": "doi-10-1186-s13102-025-01149-8",
+      "file_name": "sun-2025-aerobic-fitness.pdf",
+      "title": "Comparative effectiveness of morning and evening aerobic exercise on weight loss and physical fitness in Chinese college students with overweight and obesity",
+      "subtitle": "",
+      "authors": [
+        "Jingyu Sun",
+        "Nannan Jia",
+        "Yaning Xu",
+        "Dakai Guo",
+        "Tianfeng Lu",
+        "Jiajia Chen",
+        "Hang Chu",
+        "Zhangxiaohe Zhang",
+        "Ke Yao",
+        "Rongji Zhao",
+        "Tao Chen"
+      ],
+      "journal": "BMC Sports Science, Medicine and Rehabilitation",
+      "year": "2025",
+      "volume": "17",
+      "issue": "1",
+      "pages": "101",
+      "doi": "10.1186/s13102-025-01149-8",
+      "source_url": "https://doi.org/10.1186/s13102-025-01149-8",
+      "keywords": [
+        "morning exercise",
+        "evening exercise",
+        "aerobic exercise",
+        "weight loss",
+        "physical fitness",
+        "college students"
+      ],
+      "license": "CC BY 4.0",
+      "page_count": 10,
+      "pdf_sha256": "8ca8feecb350d3510e45d9bf335beac92ec6bda4125742c052612cfadedcb462"
+    },
+    {
+      "document_id": "doi-10-1186-s12889-024-20469-x",
+      "file_name": "wang-2024-blended-pe.pdf",
+      "title": "Effects of blended learning in physical education on university students’ exercise attitudes and basketball skills: a cluster randomized controlled trial",
+      "subtitle": "",
+      "authors": [
+        "Chen Wang",
+        "Yubin Yuan",
+        "Xueyan Ji"
+      ],
+      "journal": "BMC Public Health",
+      "year": "2024",
+      "volume": "24",
+      "issue": "1",
+      "pages": "3170",
+      "doi": "10.1186/s12889-024-20469-x",
+      "source_url": "https://doi.org/10.1186/s12889-024-20469-x",
+      "keywords": [
+        "blended learning",
+        "physical education",
+        "exercise attitudes",
+        "basketball skills",
+        "cluster randomized controlled trial",
+        "university students"
+      ],
+      "license": "CC BY-NC-ND 4.0",
+      "page_count": 10,
+      "pdf_sha256": "5daa3ef59d4689171c926e0ba5df94641fa7e4bc10d1f8773dfaa01fc5b55f48"
+    },
+    {
+      "document_id": "doi-10-3389-fpsyg-2025-1601079",
+      "file_name": "xiong-2025-social-support.pdf",
+      "title": "The role of social support and psychological capital in college students' physical exercise behavior: a mediation analysis",
+      "subtitle": "",
+      "authors": [
+        "You Xiong",
+        "Juncheng Si",
+        "Zhan Huang",
+        "Junjie Ouyang",
+        "Shuai Ma",
+        "Yao Huang",
+        "Xiaoling Huang"
+      ],
+      "journal": "Frontiers in Psychology",
+      "year": "2025",
+      "volume": "16",
+      "issue": "无",
+      "pages": "1601079",
+      "doi": "10.3389/fpsyg.2025.1601079",
+      "source_url": "https://doi.org/10.3389/fpsyg.2025.1601079",
+      "keywords": [
+        "physical exercise behavior",
+        "college students",
+        "social support",
+        "psychological capital",
+        "mediation analysis"
+      ],
+      "license": "CC BY 4.0",
+      "page_count": 11,
+      "pdf_sha256": "e98a046f42cb1af244719e404a9a4cd258c0b98cee68cccf39e048dbc5b953f9"
+    },
+    {
+      "document_id": "doi-10-1186-s40359-024-01558-3",
+      "file_name": "zhang-2024-health-beliefs.pdf",
+      "title": "Effects of physical health beliefs on college students’ physical exercise behavior intention: mediating effects of exercise imagery",
+      "subtitle": "",
+      "authors": [
+        "Li Zhang",
+        "Donghuan Bai",
+        "Pengwei Song",
+        "Jia Zhang"
+      ],
+      "journal": "BMC Psychology",
+      "year": "2024",
+      "volume": "12",
+      "issue": "1",
+      "pages": "99",
+      "doi": "10.1186/s40359-024-01558-3",
+      "source_url": "https://doi.org/10.1186/s40359-024-01558-3",
+      "keywords": [
+        "physical health beliefs",
+        "exercise imagery",
+        "physical exercise behavior intention",
+        "college students"
+      ],
+      "license": "CC BY 4.0",
+      "page_count": 8,
+      "pdf_sha256": "7863721da6d110212bb60e7bed6059c7ac53a801860a1280e5341f9a18481b50"
+    },
+    {
+      "document_id": "doi-10-3389-fpubh-2025-1699606",
+      "file_name": "zhang-2025-predictors-pa.pdf",
+      "title": "Random forest-based identification and ranking of predictive factors for physical activity in Chinese college students",
+      "subtitle": "",
+      "authors": [
+        "Ding-you Zhang",
+        "Hu Lou",
+        "Jun Liu",
+        "Bo Li"
+      ],
+      "journal": "Frontiers in Public Health",
+      "year": "2025",
+      "volume": "13",
+      "issue": "无",
+      "pages": "1699606",
+      "doi": "10.3389/fpubh.2025.1699606",
+      "source_url": "https://doi.org/10.3389/fpubh.2025.1699606",
+      "keywords": [
+        "physical activity",
+        "random forest",
+        "predictive factors",
+        "Chinese college students"
+      ],
+      "license": "CC BY 4.0",
+      "page_count": 17,
+      "pdf_sha256": "09c3cf14dd10550fe65dded92917ff652861c56a6b8f846cdfa6b786fbfa6bc5"
+    }
+  ]
+}
