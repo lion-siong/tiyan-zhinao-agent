@@ -1,21 +1,35 @@
-# 密钥与本地环境
+# 密钥、凭据与本地环境
 .env
 .env.*
 !.env.example
+.streamlit/secrets.toml
+*.pem
+*.key
+*.p12
+*.pfx
+id_rsa
+id_ed25519
+credentials.json
+service-account*.json
 .venv/
 venv/
 env/
 
-# Python 缓存和测试缓存
+# Python 缓存、测试缓存与工具缓存
 __pycache__/
 *.py[cod]
 *$py.class
 .pytest_cache/
+.pytest_tmp/
+.mypy_cache/
+.ruff_cache/
 .coverage
+coverage.xml
 htmlcov/
+.cache/
 .tmp/
 
-# 编辑器与系统临时文件
+# 编辑器、系统临时文件与日志
 .vscode/
 .idea/
 .DS_Store
@@ -25,20 +39,47 @@ Thumbs.db
 *~
 *.tmp
 *.restore
+*.log
 
-# 用户数据与生成文件
+# 数据库、用户学习记录和运行时数据
+*.db
+*.db-*
+*.sqlite
+*.sqlite-*
+*.sqlite3
+*.sqlite3-*
 data/*
 !data/README.md
+
+# 浏览器配置、Cookie 与登录资料
+**/edge-profile*/
+**/chrome-profile*/
+**/firefox-profile*/
+**/Cookies
+**/Login Data
+**/Local State
+**/Web Data
+**/History
+
+# 论文全文、派生证据与可重建索引
+# 论文 PDF 是否可公开再分发必须逐篇核对许可，默认不进入 Git。
+*.pdf
 knowledge_base/**
 !knowledge_base/README.md
 !knowledge_base/manifest.json
-!knowledge_base/pdfs/
-!knowledge_base/pdfs/*.pdf
-!knowledge_base/index/
-!knowledge_base/index/evidence_chunks.json
-!knowledge_base/framework.json
+
+# 用户上传、输出和模型缓存
 outputs/*
 !outputs/README.md
+data/models/
+data/user_papers/
+
+# 临时压缩包必须解包后单独审计
+*.zip
+*.rar
+*.7z
+*.tar
+*.tar.gz
 
 # 构建产物
 build/
