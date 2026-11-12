@@ -18,9 +18,12 @@ from researchmind.collectors import (
 )
 from researchmind.models import (
     QUESTION_TYPES,
+    AssessmentQuestion,
     CandidatePaper,
     EvidenceRef,
     PaperRecord,
+    ResearchDomain,
+    RubricCriterion,
 )
 from researchmind.storage import BASELINE_MASTERY, ResearchMindStore
 from researchmind.ui import (
@@ -224,6 +227,117 @@ def test_new_pdf_directory_entry_syncs_into_researchmind(
     assert papers[0].doi == "10.12677/ass.2026.157601"
     assert store.get_paper(stale_paper.paper_id) is None
     assert store.evidence_count(domain.domain_id) > 0
+
+
+def test_paper_deletion_invalidates_only_affected_learning_data(
+    tmp_path: Path,
+) -> None:
+    """删除论文后，相关旧题失效，无关题目与答题记录继续保留。"""
+
+    store = ResearchMindStore(tmp_path / "researchmind.sqlite3")
+    domain = ResearchDomain.create(
+        name="论文删除一致性测试",
+        description="验证删除论文后派生学习数据的清理范围。",
+        keywords=("测试",),
+        created_at="2026-01-01T00:00:00+00:00",
+    )
+    store.upsert_domain(domain)
+
+    deleted_paper = PaperRecord(
+        paper_id="deleted-paper",
+        domain_id=domain.domain_id,
+        title="待删除论文",
+        authors=("测试作者",),
+        year="2025",
+        journal="测试期刊",
+        doi="10.0000/deleted",
+        source_url="",
+        abstract="",
+        keywords=("测试",),
+        pdf_path=str(tmp_path / "deleted.pdf"),
+        source="测试",
+        verification_status="测试",
+        created_at="2026-01-01T00:00:00+00:00",
+    )
+    kept_paper = replace(
+        deleted_paper,
+        paper_id="kept-paper",
+        title="保留论文",
+        doi="10.0000/kept",
+    )
+    store.upsert_paper(deleted_paper)
+    store.upsert_paper(kept_paper)
+
+    def question(
+        question_id: str,
+        paper_id: str,
+    ) -> AssessmentQuestion:
+        return AssessmentQuestion(
+            question_id=question_id,
+            domain_id=domain.domain_id,
+            question_type="单项选择题",
+            prompt=f"关于 {paper_id} 的测试题",
+            options=("中文选项甲", "中文选项乙"),
+            standard_answer="A",
+            rubric=(
+                RubricCriterion(
+                    label="答案正确",
+                    description="选择原文支持的正确选项",
+                    points=10,
+                ),
+            ),
+            knowledge_tags=("测试知识点",),
+            difficulty="基础",
+            source_paper_ids=(paper_id,),
+            evidence=(
+                EvidenceRef(
+                    chunk_id=f"{question_id}-evidence",
+                    document_id=paper_id,
+                    document_title=paper_id,
+                    file_name=f"{paper_id}.pdf",
+                    page_number=1,
+                    quote="用于验证论文删除后的派生数据清理。",
+                ),
+            ),
+            created_at="2026-01-01T00:00:00+00:00",
+        )
+
+    affected = question("affected-question", deleted_paper.paper_id)
+    unaffected = question("unaffected-question", kept_paper.paper_id)
+    store.save_question(affected)
+    store.save_question(unaffected)
+    store.record_attempt(
+        domain_id=domain.domain_id,
+        question=affected,
+        user_answer="A",
+        score=10,
+        feedback="正确",
+        mode="客观题自动评分",
+    )
+    store.record_attempt(
+        domain_id=domain.domain_id,
+        question=unaffected,
+        user_answer="A",
+        score=10,
+        feedback="正确",
+        mode="客观题自动评分",
+    )
+
+    cleanup = store.invalidate_domain_derivations(
+        domain.domain_id,
+        (deleted_paper.paper_id,),
+    )
+
+    remaining_questions = store.list_questions(domain.domain_id)
+    remaining_attempts = store.list_attempts(domain.domain_id)
+    assert cleanup["questions"] == 1
+    assert cleanup["attempts"] == 1
+    assert [item.question_id for item in remaining_questions] == [
+        unaffected.question_id
+    ]
+    assert [item.question_id for item in remaining_attempts] == [
+        unaffected.question_id
+    ]
 
 
 def test_crossref_pdf_link_is_metadata_only(

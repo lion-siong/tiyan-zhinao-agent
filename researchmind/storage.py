@@ -361,6 +361,88 @@ class ResearchMindStore:
             )
         return len(stale_ids)
 
+    def invalidate_domain_derivations(
+        self,
+        domain_id: str,
+        deleted_paper_ids: Iterable[str],
+    ) -> dict[str, int]:
+        """删除已失效的领域分析、试题和关联答题记录。
+
+        论文库变化后，旧的观点比较和知识体系可能继续引用已删除论文。
+        因此清空该领域的派生分析；题库只删除明确引用被删论文的题目，
+        无关题目和其余学习记录继续保留。
+        """
+
+        deleted_ids = {
+            str(paper_id)
+            for paper_id in deleted_paper_ids
+            if str(paper_id).strip()
+        }
+        if not deleted_ids:
+            return {
+                "debates": 0,
+                "syntheses": 0,
+                "questions": 0,
+                "attempts": 0,
+            }
+
+        with self.connection() as connection:
+            question_rows = connection.execute(
+                """
+                SELECT question_id, source_paper_ids_json
+                FROM questions
+                WHERE domain_id = ?
+                """,
+                (domain_id,),
+            ).fetchall()
+            affected_question_ids = []
+            for row in question_rows:
+                source_ids = set(_loads(str(row["source_paper_ids_json"]), []))
+                if source_ids & deleted_ids:
+                    affected_question_ids.append(str(row["question_id"]))
+
+            deleted_attempts = 0
+            if affected_question_ids:
+                placeholders = ",".join("?" for _ in affected_question_ids)
+                attempt_cursor = connection.execute(
+                    f"""
+                    DELETE FROM attempts
+                    WHERE domain_id = ?
+                      AND question_id IN ({placeholders})
+                    """,
+                    (domain_id, *affected_question_ids),
+                )
+                deleted_attempts = max(0, attempt_cursor.rowcount)
+
+            deleted_questions = 0
+            if affected_question_ids:
+                placeholders = ",".join("?" for _ in affected_question_ids)
+                question_cursor = connection.execute(
+                    f"""
+                    DELETE FROM questions
+                    WHERE domain_id = ?
+                      AND question_id IN ({placeholders})
+                    """,
+                    (domain_id, *affected_question_ids),
+                )
+                deleted_questions = max(0, question_cursor.rowcount)
+
+            debate_cursor = connection.execute(
+                "DELETE FROM debates WHERE domain_id = ?",
+                (domain_id,),
+            )
+            synthesis_cursor = connection.execute(
+                "DELETE FROM syntheses WHERE domain_id = ?",
+                (domain_id,),
+            )
+
+        return {
+            "debates": max(0, debate_cursor.rowcount),
+            "syntheses": max(0, synthesis_cursor.rowcount),
+            "questions": deleted_questions,
+            "attempts": deleted_attempts,
+        }
+
     def replace_evidence(
         self,
         paper_id: str,

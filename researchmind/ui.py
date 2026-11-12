@@ -47,7 +47,12 @@ from researchmind.workflow import (
     ResearchMindWorkflowError,
 )
 from researchmind.zotero_service import ZoteroError, ZoteroService
-from tools.library_ingest import IncomingPDF, IngestResult, ingest_pdf_files
+from tools.library_ingest import (
+    IncomingPDF,
+    IngestResult,
+    ingest_pdf_files,
+    remove_library_documents,
+)
 
 
 RESEARCHMIND_PAGES = (
@@ -402,6 +407,12 @@ def _render_library(
         "我的论文库",
         "查看当前领域真实论文、证据数量、开放来源和本地 PDF 状态。",
     )
+    delete_notice = st.session_state.pop(
+        "researchmind_paper_delete_notice",
+        "",
+    )
+    if delete_notice:
+        st.success(delete_notice)
     papers = workflow.store.list_papers(domain.domain_id)
     evidence_count = workflow.store.evidence_count(domain.domain_id)
     zotero = ZoteroService(workflow.config)
@@ -419,8 +430,11 @@ def _render_library(
     )
 
     if not papers:
-        st.warning("当前领域还没有论文。可先同步项目内置论文库。")
-        if st.button("同步项目内置论文库", icon=":material/sync:"):
+        st.warning(
+            "当前领域还没有论文。请通过“文献自动采集”导入开放论文，"
+            "或使用其他已授权的 PDF 建立论文库。"
+        )
+        if st.button("刷新论文库状态", icon=":material/sync:"):
             result = workflow.sync_bundled_library(domain=domain, force=True)
             _show_sync_result(result)
             st.rerun()
@@ -530,6 +544,9 @@ def _render_library(
     else:
         st.info("当前筛选条件下没有论文。")
 
+    if papers:
+        _render_library_removal(workflow, domain, papers)
+
     if st.button(
         "检查并同步最新论文库",
         icon=":material/sync:",
@@ -539,6 +556,96 @@ def _render_library(
         _show_sync_result(result)
         if not result.used_cached_sync:
             st.rerun()
+
+
+def _render_library_removal(
+    workflow: ResearchMindWorkflow,
+    domain: ResearchDomain,
+    papers: tuple[PaperRecord, ...],
+) -> None:
+    """提供带双重确认的项目论文库永久删除入口。"""
+
+    with st.expander("删除论文", icon=":material/delete_forever:"):
+        st.warning(
+            "删除会永久移除本地 PDF、证据索引、研究框架和当前领域的"
+            "相关分析结果，并影响其他使用同一项目论文库的研究领域。"
+        )
+        paper_by_id = {paper.paper_id: paper for paper in papers}
+        selected_ids = tuple(
+            st.multiselect(
+                "选择要删除的论文",
+                options=tuple(paper_by_id),
+                format_func=lambda value: paper_by_id[value].title,
+                key="researchmind_library_delete_scope",
+            )
+        )
+        confirmed = st.checkbox(
+            "我确认永久删除所选论文及其本地文件",
+            key="researchmind_library_delete_confirm",
+        )
+        if st.button(
+            "永久删除所选论文",
+            icon=":material/delete_forever:",
+            disabled=not selected_ids or not confirmed,
+            key="researchmind_library_delete_button",
+        ):
+            _delete_library_papers(workflow, domain, selected_ids)
+
+
+def _delete_library_papers(
+    workflow: ResearchMindWorkflow,
+    domain: ResearchDomain,
+    paper_ids: tuple[str, ...],
+) -> None:
+    """删除论文资产、重建派生索引，并清理当前领域的失效结果。"""
+
+    selected_papers = tuple(
+        paper
+        for paper_id in paper_ids
+        if (paper := workflow.store.get_paper(paper_id)) is not None
+    )
+    if not selected_papers:
+        st.error("未找到要删除的论文，请刷新页面后重试。")
+        return
+
+    try:
+        with st.spinner("正在删除 PDF、重建证据索引和研究框架..."):
+            removal = remove_library_documents(
+                [Path(paper.pdf_path).name for paper in selected_papers],
+                workflow.knowledge_base_dir,
+            )
+            workflow.store.invalidate_domain_derivations(
+                domain.domain_id,
+                paper_ids,
+            )
+            sync_result = workflow.sync_bundled_library(
+                domain=domain,
+                force=True,
+            )
+    except (KnowledgeBaseError, OSError, ResearchMindWorkflowError) as exc:
+        st.error(f"论文删除未完成：{exc}")
+        return
+
+    removed_titles = "、".join(paper.title for paper in selected_papers)
+    st.session_state["researchmind_paper_delete_notice"] = (
+        f"已删除 {len(selected_papers)} 篇论文：{removed_titles}。"
+        f"当前领域剩余 {sync_result.total_papers} 篇论文。"
+    )
+    if removal.vector_warning:
+        st.warning(removal.vector_warning)
+    for key in tuple(st.session_state):
+        if (
+            key.startswith("researchmind_analysis_")
+            or key.startswith("researchmind_debate_")
+            or key.startswith("researchmind_synthesis_")
+            or key
+            in {
+                "researchmind_active_questions",
+                "researchmind_learning_result",
+            }
+        ):
+            st.session_state.pop(key, None)
+    st.rerun()
 
 
 def _render_paper_reading(

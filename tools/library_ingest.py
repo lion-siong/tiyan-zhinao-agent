@@ -11,7 +11,7 @@ import json
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterable
 
 from config import settings
 from services.vector_service import (
@@ -89,6 +89,26 @@ class _PreparedPDF:
 class RebuildResult:
     """证据索引、研究框架和向量库的联合重建结果。"""
 
+    bundle: BundledKnowledgeBase
+    framework: LiteratureFramework
+    vector_sync: VectorSyncResult | None = None
+    vector_warning: str = ""
+
+
+@dataclass(frozen=True)
+class RemovedDocument:
+    """从项目论文库中永久移除的一篇论文。"""
+
+    document_id: str
+    file_name: str
+    title: str
+
+
+@dataclass(frozen=True)
+class RemovalResult:
+    """论文删除、索引重建和向量同步的联合结果。"""
+
+    removed: tuple[RemovedDocument, ...]
     bundle: BundledKnowledgeBase
     framework: LiteratureFramework
     vector_sync: VectorSyncResult | None = None
@@ -312,6 +332,116 @@ def rebuild_library(
         enabled=auto_vector_sync,
     )
     return RebuildResult(
+        bundle=bundle,
+        framework=framework,
+        vector_sync=vector_sync,
+        vector_warning=vector_warning,
+    )
+
+
+def remove_library_documents(
+    file_names: Iterable[str],
+    base_dir: Path | str | None = None,
+    *,
+    auto_vector_sync: bool = True,
+) -> RemovalResult:
+    """从项目论文库永久删除指定 PDF，并重建全部派生数据。
+
+    删除前会保存清单、证据索引、研究框架和 PDF 的快照。任何一步失败时，
+    已修改的文件都会恢复，避免只删掉页面记录或只删掉 PDF 的半完成状态。
+    """
+
+    root = _resolve_root(base_dir)
+    requested_names = {
+        Path(str(value).strip()).name
+        for value in file_names
+        if str(value).strip()
+    }
+    if not requested_names:
+        raise ValueError("至少选择一篇要删除的论文。")
+
+    manifest_path = root / "manifest.json"
+    manifest = _read_manifest(manifest_path)
+    raw_documents = manifest.get("documents")
+    if not isinstance(raw_documents, list):
+        raise KnowledgeBaseError("文献清单缺少 documents 列表。")
+
+    selected: list[dict[str, Any]] = []
+    remaining: list[Any] = []
+    for item in raw_documents:
+        if not isinstance(item, dict):
+            remaining.append(item)
+            continue
+        raw_file_name = str(item.get("file_name", ""))
+        if Path(raw_file_name).name != raw_file_name:
+            raise KnowledgeBaseError(
+                f"文献清单包含不安全文件名：{raw_file_name}"
+            )
+        if raw_file_name in requested_names:
+            selected.append(item)
+        else:
+            remaining.append(item)
+
+    found_names = {str(item["file_name"]) for item in selected}
+    missing_names = sorted(requested_names - found_names)
+    if missing_names:
+        raise KnowledgeBaseError(
+            "以下论文不在当前文献清单中：" + "、".join(missing_names)
+        )
+
+    index_path = root / INDEX_FILE_PATH
+    framework_path = root / FRAMEWORK_FILE_NAME
+    manifest_before = manifest_path.read_bytes()
+    index_before = index_path.read_bytes() if index_path.exists() else None
+    framework_before = (
+        framework_path.read_bytes() if framework_path.exists() else None
+    )
+    pdf_dir = root / DOCUMENT_PDF_DIR
+    pdf_before: dict[Path, bytes | None] = {
+        pdf_dir / name: (
+            (pdf_dir / name).read_bytes()
+            if (pdf_dir / name).is_file()
+            else None
+        )
+        for name in found_names
+    }
+
+    try:
+        manifest["documents"] = remaining
+        _write_json_atomic(manifest_path, manifest)
+        for path in pdf_before:
+            path.unlink(missing_ok=True)
+        bundle = build_evidence_corpus(root)
+        framework = build_and_save_literature_framework(bundle, root)
+        vector_sync, vector_warning = _try_sync_vectors(
+            bundle,
+            root,
+            enabled=auto_vector_sync,
+        )
+    except Exception as exc:
+        _restore_file(manifest_path, manifest_before)
+        _restore_optional_file(index_path, index_before)
+        _restore_optional_file(framework_path, framework_before)
+        for path, content in pdf_before.items():
+            if content is not None:
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(content)
+        if isinstance(exc, KnowledgeBaseError):
+            raise
+        raise KnowledgeBaseError(
+            f"论文删除失败，已恢复原文献库：{exc}"
+        ) from exc
+
+    removed = tuple(
+        RemovedDocument(
+            document_id=str(item.get("document_id", "")),
+            file_name=str(item.get("file_name", "")),
+            title=str(item.get("title", "")),
+        )
+        for item in selected
+    )
+    return RemovalResult(
+        removed=removed,
         bundle=bundle,
         framework=framework,
         vector_sync=vector_sync,

@@ -33,6 +33,7 @@ from tools.knowledge_base import load_bundled_knowledge_base
 from tools.library_ingest import (
     IncomingPDF,
     ingest_pdf_files,
+    remove_library_documents,
     sync_pdf_directory,
 )
 from tools.literature_framework import load_literature_framework
@@ -668,6 +669,61 @@ def test_pdf_directory_sync_builds_index_and_framework(tmp_path: Path) -> None:
     assert duplicate_result.imported_count == 0
     assert duplicate_result.duplicates
     assert len(load_bundled_knowledge_base(knowledge_dir).documents) == 1
+
+
+def test_library_removal_updates_manifest_index_and_framework(
+    tmp_path: Path,
+) -> None:
+    """删除论文后不能留下清单、索引、框架或 PDF 残片。"""
+
+    knowledge_dir = tmp_path / "knowledge_base"
+    pdf_dir = knowledge_dir / "pdfs"
+    (knowledge_dir / "index").mkdir(parents=True)
+    pdf_dir.mkdir()
+    manifest = {
+        "schema_version": 1,
+        "library_name": "论文删除测试库",
+        "description": "验证论文删除和派生索引重建。",
+        "documents": [],
+    }
+    (knowledge_dir / "manifest.json").write_text(
+        json.dumps(manifest, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+
+    source_pdf = (
+        Path(__file__).resolve().parent.parent
+        / "knowledge_base"
+        / "pdfs"
+        / "ass_2401349.pdf"
+    )
+    ingest_result = ingest_pdf_files(
+        [IncomingPDF(source_pdf.name, source_pdf.read_bytes())],
+        knowledge_dir,
+        auto_vector_sync=False,
+    )
+    imported = ingest_result.imported[0]
+
+    removal = remove_library_documents(
+        [imported.file_name],
+        knowledge_dir,
+        auto_vector_sync=False,
+    )
+
+    assert [item.file_name for item in removal.removed] == [imported.file_name]
+    assert load_bundled_knowledge_base(knowledge_dir).documents == ()
+    assert load_literature_framework(knowledge_dir).documents_count == 0
+    assert not (pdf_dir / imported.file_name).exists()
+    updated_manifest = json.loads(
+        (knowledge_dir / "manifest.json").read_text(encoding="utf-8")
+    )
+    assert updated_manifest["documents"] == []
+    index = json.loads(
+        (knowledge_dir / "index" / "evidence_chunks.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert index["chunks"] == []
 
 
 def test_light_and_dark_palettes_keep_required_contrast() -> None:

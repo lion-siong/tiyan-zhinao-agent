@@ -82,7 +82,7 @@
 | 持久化 | SQLite、JSON | 论文库、学习记录、证据索引和研究框架 |
 | 配置 | python-dotenv | 从 `.env` 读取密钥和运行参数 |
 | 外部接口 | OpenAI 兼容接口、Semantic Scholar、arXiv、OpenAlex、Crossref、Zotero Web API | 问答、Function Calling、文献元数据与同步 |
-| 测试 | Pytest | 82 个自动化测试 |
+| 测试 | Pytest | 84 个自动化测试 |
 
 ## 四、快速开始
 
@@ -232,7 +232,7 @@ Copy-Item .env.example .env
 3. 文献证据问答可以显示论文题名、文件名、页码和原文。
 4. 未配置 API Key 时页面不崩溃，并明确标注模拟回答或本地规则模式。
 5. AI 学习测评提交后同时显示用户答案、标准答案、得分和评分依据。
-6. 执行 `pytest -q` 后得到 `82 passed`。
+6. 执行 `pytest -q` 后得到 `84 passed`。
 
 首次语义检索需要联网下载 `intfloat/multilingual-e5-small`。下载失败时系统自动回退 BM25，不阻断本地演示。若只做离线演示，可提前运行一次向量构建，并在演示前确认 `knowledge_base/chroma/`、论文清单和证据索引均可读。
 
@@ -259,6 +259,8 @@ Copy-Item .env.example .env
 4. PDF 保存到 `knowledge_base/pdfs/`。
 5. `manifest.json`、证据索引、向量库和 `framework.json` 自动更新。
 6. 新论文同步到 ResearchMind 的 SQLite 论文库。
+7. 在“我的论文库 > 删除论文”中可永久删除选中的项目论文；系统会同步清理
+   PDF、文献清单、派生索引、研究框架和当前领域内引用该论文的旧分析结果。
 
 也可以把现有 PDF 直接放入 `knowledge_base/pdfs/`，然后在“文献框架”或“我的论文库”中执行扫描和同步。
 
@@ -366,7 +368,7 @@ Copy-Item .env.example .env
 │   ├── user_papers/               用户主动上传的 PDF 与分页证据
 │   └── models/                    嵌入模型缓存
 ├── outputs/                       日志和输出文件
-└── tests/                         82 个自动化测试
+└── tests/                         84 个自动化测试
 ```
 
 ## 八、主要配置项

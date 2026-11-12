@@ -146,7 +146,7 @@ def load_bundled_knowledge_base(
     expected_count = index_data.get("chunk_count")
     if expected_count != len(chunks):
         raise KnowledgeBaseError("证据索引片段数量与 chunk_count 不一致。")
-    if not chunks:
+    if documents and not chunks:
         raise KnowledgeBaseError("证据索引为空，请重新构建索引。")
 
     return BundledKnowledgeBase(
@@ -284,8 +284,10 @@ def _parse_documents(
     """解析并校验文献清单中的每一篇文档。"""
 
     raw_documents = manifest.get("documents")
-    if not isinstance(raw_documents, list) or not raw_documents:
+    if not isinstance(raw_documents, list):
         raise KnowledgeBaseError("文献清单中没有 documents。")
+    if not raw_documents:
+        return ()
 
     documents: list[KnowledgeDocument] = []
     seen_ids: set[str] = set()
