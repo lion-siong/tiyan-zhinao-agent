@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import re
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -141,7 +142,11 @@ def _read_json(
     timeout: int,
     api_key: str,
 ) -> dict[str, Any]:
-    """读取公开 JSON 接口，并把网络异常转换为清晰提示。"""
+    """读取公开 JSON 接口，并把网络异常转换为清晰提示。
+
+    遇到 429 限流时按 Retry-After（默认 1 秒）短退避后重试一次；
+    仍被限流再抛出明确提示，避免匿名额度的瞬时抖动直接失败。
+    """
 
     headers = {
         "Accept": "application/json",
@@ -151,22 +156,29 @@ def _read_json(
         headers["x-api-key"] = api_key
     request = urllib.request.Request(url, headers=headers, method="GET")
 
-    try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:
-            body = response.read().decode("utf-8")
-    except urllib.error.HTTPError as exc:
-        if exc.code == 429:
+    body = ""
+    for attempt in range(2):
+        try:
+            with urllib.request.urlopen(request, timeout=timeout) as response:
+                body = response.read().decode("utf-8")
+            break
+        except urllib.error.HTTPError as exc:
+            if exc.code == 429:
+                rate_limited = SemanticScholarError(
+                    "Semantic Scholar 请求过于频繁，请稍后重试；"
+                    "可在 .env 配置 SEMANTIC_SCHOLAR_API_KEY 提升额度。"
+                )
+                if attempt == 0:
+                    time.sleep(_retry_after_seconds(exc))
+                    continue
+                raise rate_limited from exc
             raise SemanticScholarError(
-                "Semantic Scholar 请求过于频繁，请稍后重试；"
-                "可在 .env 配置 SEMANTIC_SCHOLAR_API_KEY 提升额度。"
+                f"Semantic Scholar 返回 HTTP {exc.code}。"
             ) from exc
-        raise SemanticScholarError(
-            f"Semantic Scholar 返回 HTTP {exc.code}。"
-        ) from exc
-    except (urllib.error.URLError, TimeoutError, OSError) as exc:
-        raise SemanticScholarError(
-            f"无法连接 Semantic Scholar：{exc}"
-        ) from exc
+        except (urllib.error.URLError, TimeoutError, OSError) as exc:
+            raise SemanticScholarError(
+                f"无法连接 Semantic Scholar：{exc}"
+            ) from exc
 
     try:
         data = json.loads(body)
@@ -179,6 +191,17 @@ def _read_json(
             "Semantic Scholar 返回的数据格式不正确。"
         )
     return data
+
+
+def _retry_after_seconds(exc: urllib.error.HTTPError) -> float:
+    """读取 Retry-After 头，限制在 0.2–5 秒之间；缺失时用默认 1 秒。"""
+
+    raw = exc.headers.get("Retry-After") if exc.headers else None
+    try:
+        delay = float(raw) if raw else 1.0
+    except (TypeError, ValueError):
+        delay = 1.0
+    return min(max(delay, 0.2), 5.0)
 
 
 def _parse_paper(record: Any) -> SemanticScholarPaper | None:

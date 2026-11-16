@@ -9,6 +9,7 @@ from dataclasses import replace
 from pathlib import Path
 
 import pytest
+from streamlit.testing.v1 import AppTest
 
 from config import Settings
 from researchmind.collectors import (
@@ -16,11 +17,18 @@ from researchmind.collectors import (
     LiteratureCollector,
     _search_crossref,
 )
+from researchmind.agents import (
+    AssessmentGenerationError,
+    FIELD_LABELS,
+    PersonalTutorAgent,
+)
 from researchmind.models import (
+    ASSESSMENT_MODULES,
     QUESTION_TYPES,
     AssessmentQuestion,
     CandidatePaper,
     EvidenceRef,
+    PaperAnalysis,
     PaperRecord,
     ResearchDomain,
     RubricCriterion,
@@ -32,6 +40,7 @@ from researchmind.ui import (
     _download_and_ingest_candidate,
     _format_question_answer,
     _question_option_labels,
+    _render_learning_assessment,
 )
 from researchmind.workflow import (
     DEFAULT_DEBATE_TOPIC,
@@ -462,7 +471,9 @@ def test_six_agents_produce_traceable_analysis(pipeline_bundle) -> None:
         assert all(item.page_number > 0 for item in viewpoint.evidence)
         assert all(item.document_id in viewpoint.supporting_papers for item in viewpoint.evidence)
 
-    assert pipeline.debate.evidence_strength.startswith("待评估")
+    strength_text = pipeline.debate.evidence_strength
+    assert strength_text.startswith(("自动初筛：", "待评估："))
+    assert "非正式 GRADE 评价" in strength_text
     assert (
         "证据不足" in pipeline.debate.consensus_summary
         or "系统综述核验" in pipeline.debate.consensus_summary
@@ -474,7 +485,7 @@ def test_six_agents_produce_traceable_analysis(pipeline_bundle) -> None:
 def test_all_question_types_include_sources_rubrics_and_tags(
     pipeline_bundle,
 ) -> None:
-    _, _, pipeline = pipeline_bundle
+    workflow, _, pipeline = pipeline_bundle
     questions_by_type = {
         question.question_type: question for question in pipeline.questions
     }
@@ -489,6 +500,13 @@ def test_all_question_types_include_sources_rubrics_and_tags(
         assert question.knowledge_tags
         assert question.difficulty
         assert question.standard_answer.strip()
+        assert question.explanation.strip()
+
+    persisted = workflow.store.get_question(
+        pipeline.questions[0].question_id
+    )
+    assert persisted is not None
+    assert persisted.explanation.strip()
 
     for question_type in ("论述题", "文献对比分析题"):
         standard_answer = questions_by_type[question_type].standard_answer
@@ -499,6 +517,239 @@ def test_all_question_types_include_sources_rubrics_and_tags(
         assert "相关与因果" in standard_answer
         assert "证据不足" in standard_answer
         assert "学术共识" in standard_answer
+
+
+def test_assessment_field_labels_cover_new_analysis_schema() -> None:
+    analysis = PaperAnalysis(paper_id="schema-probe")
+    assert {
+        "purpose",
+        "population",
+        "methods",
+        "interventions",
+        "comparators",
+        "measures",
+        "results",
+        "statistics",
+        "conclusions",
+        "limitations",
+    }.issubset(FIELD_LABELS)
+    assert analysis.interventions == ()
+
+
+def test_assessment_generates_all_five_modules_from_real_evidence(
+    pipeline_bundle,
+) -> None:
+    workflow, domain, _ = pipeline_bundle
+
+    questions = workflow.assessment.generate_question_set(
+        domain.domain_id,
+        assessment_modules=ASSESSMENT_MODULES,
+        debate_topic=DEFAULT_DEBATE_TOPIC,
+    )
+    by_module = {
+        module: tuple(
+            question
+            for question in questions
+            if question.assessment_module == module
+        )
+        for module in ASSESSMENT_MODULES
+    }
+
+    assert all(by_module.values())
+    assert {
+        question.question_type for question in by_module["基础知识理解"]
+    } == {"单项选择题", "多项选择题", "判断题", "简答题"}
+    assert {
+        question.question_type for question in by_module["文献深度理解"]
+    } == {"深度理解题"}
+    assert {
+        question.question_type for question in by_module["文献对比分析"]
+    } == {"文献对比分析题"}
+    assert {
+        question.question_type for question in by_module["学术思辨训练"]
+    } == {"学术思辨题"}
+    assert {
+        question.question_type
+        for question in by_module["个性化错题与补学"]
+    } == {"个性化补学题"}
+
+    comparison = by_module["文献对比分析"][0]
+    assert len(set(comparison.source_paper_ids)) >= 2
+    assert len(
+        {item.document_id for item in comparison.evidence}
+    ) >= 2
+    assert [item.label for item in comparison.rubric] == [
+        "核心观点准确性",
+        "文献证据引用能力",
+        "多篇论文对比能力",
+        "学术逻辑与推理能力",
+        "批判性思维能力",
+    ]
+    assert all(
+        server_question.assessment_module == question.assessment_module
+        for question in questions
+        if (server_question := workflow.store.get_question(
+            question.question_id
+        )) is not None
+    )
+
+
+def test_subjective_scoring_uses_evidence_not_answer_length(
+    pipeline_bundle,
+) -> None:
+    workflow, domain, _ = pipeline_bundle
+    comparison = workflow.assessment.generate_question_set(
+        domain.domain_id,
+        assessment_modules=("文献对比分析",),
+        debate_topic=DEFAULT_DEBATE_TOPIC,
+    )[0]
+
+    evidence_based = workflow.assessment.score(
+        comparison,
+        comparison.standard_answer,
+    )
+    long_unsupported = workflow.assessment.score(
+        comparison,
+        "研究有意义并且结论很重要。" * 300,
+    )
+
+    assert evidence_based.score > long_unsupported.score
+    assert long_unsupported.score <= 2.0
+    critical = next(
+        item
+        for item in evidence_based.criteria
+        if item.label == "批判性思维能力"
+    )
+    assert critical.score == critical.max_score
+    assert "篇幅" in evidence_based.feedback
+    assert all(
+        item.label
+        for item in evidence_based.criteria
+    )
+
+
+def test_personalized_review_uses_recent_wrong_answer_tags(
+    pipeline_bundle,
+) -> None:
+    workflow, domain, pipeline = pipeline_bundle
+    objective = next(
+        question
+        for question in pipeline.questions
+        if question.is_objective
+    )
+    workflow.tutor.grade_and_record(objective, "未选择任何正确选项")
+    wrong_tags = {
+        tag
+        for attempt in workflow.store.list_wrong_attempts(domain.domain_id)
+        for tag in attempt.knowledge_tags
+    }
+
+    personalized = workflow.assessment.generate_question_set(
+        domain.domain_id,
+        assessment_modules=("个性化错题与补学",),
+        debate_topic=DEFAULT_DEBATE_TOPIC,
+    )[0]
+
+    assert personalized.question_type == "个性化补学题"
+    assert "你的近期薄弱点为" in personalized.prompt
+    assert sorted(
+        wrong_tags.intersection(personalized.knowledge_tags)
+    ) == sorted(wrong_tags)
+
+
+def test_learning_assessment_page_renders_and_switches_modules(
+    pipeline_bundle,
+) -> None:
+    workflow, domain, _ = pipeline_bundle
+
+    def script(renderer, test_workflow, test_domain) -> None:
+        renderer(test_workflow, test_domain)
+
+    app = AppTest.from_function(
+        script,
+        default_timeout=30,
+        args=(
+            _render_learning_assessment,
+            workflow,
+            domain,
+        ),
+    ).run()
+
+    assert not app.exception
+    assert app.multiselect[0].value == list(ASSESSMENT_MODULES)
+    app.form_submit_button[0].click().run(timeout=30)
+
+    assert not app.exception
+    assert any(
+        "已生成" in item.value and "道有来源的试题" in item.value
+        for item in app.success
+    )
+    module_control = app.segmented_control(
+        key=f"researchmind-assessment-module-{domain.domain_id}"
+    )
+    assert tuple(module_control.options) == ASSESSMENT_MODULES
+    module_control.select("文献对比分析").run(timeout=10)
+
+    assert not app.exception
+    assert any(
+        "比较《" in item.value
+        for item in app.markdown
+    )
+
+
+def test_empty_library_assessment_returns_actionable_error(
+    tmp_path: Path,
+    no_key_config: Settings,
+) -> None:
+    workflow = ResearchMindWorkflow(
+        store=ResearchMindStore(tmp_path / "empty.sqlite3"),
+        config=no_key_config,
+        knowledge_base_dir=KNOWLEDGE_BASE_DIR,
+    )
+    domain = workflow.ensure_default_domain()
+
+    with pytest.raises(AssessmentGenerationError) as error:
+        workflow.assessment.generate_question_set(domain.domain_id)
+
+    assert error.value.code == "empty_library"
+    assert "没有活动论文" in error.value.user_message
+    assert "导入论文" in error.value.suggestion
+
+
+def test_model_scoring_failure_is_explicitly_reported(
+    pipeline_bundle,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workflow, _, pipeline = pipeline_bundle
+    question = next(
+        item
+        for item in pipeline.questions
+        if item.question_type == "简答题"
+    )
+
+    class _ConfiguredFailureLLM:
+        is_configured = True
+
+    monkeypatch.setattr(
+        workflow.assessment,
+        "llm_service",
+        _ConfiguredFailureLLM(),
+    )
+
+    def fail_scoring(*args, **kwargs):
+        del args, kwargs
+        raise TimeoutError("模型请求超时")
+
+    monkeypatch.setattr(
+        workflow.assessment,
+        "_score_with_llm",
+        fail_scoring,
+    )
+    result = workflow.assessment.score(question, "仅依据原文作答。")
+
+    assert "模型调用失败" in result.mode
+    assert "TimeoutError" in result.feedback
+    assert "模型请求超时" in result.feedback
 
 
 def test_choice_options_are_chinese_without_urls_or_misalignment(
@@ -601,6 +852,72 @@ def test_learning_cycle_updates_mastery_wrong_book_and_next_round(
     assert result.recommendation.review_plan
     assert len(workflow.store.list_wrong_attempts(domain.domain_id)) > before_wrong
     assert any(item.score == 0.0 for item in workflow.store.list_attempts(domain.domain_id))
+
+
+def test_practice_performance_is_unmeasured_until_a_real_attempt(
+    tmp_path: Path,
+) -> None:
+    store = ResearchMindStore(tmp_path / "practice-performance.sqlite3")
+    domain = ResearchDomain.create(
+        "练习表现测试",
+        "自动化测试夹具。",
+        ("青少年", "体育锻炼"),
+        "2026-11-16T00:00:00+00:00",
+    )
+    store.upsert_domain(domain)
+    evidence = EvidenceRef(
+        chunk_id="practice-evidence",
+        document_id="practice-paper",
+        document_title="Automated Test Fixture",
+        file_name="fixture.pdf",
+        page_number=1,
+        quote="Automated test fixture evidence for practice scoring.",
+        source_type="全文",
+        section_hint="result",
+    )
+    question = AssessmentQuestion(
+        question_id="practice-question",
+        domain_id=domain.domain_id,
+        question_type="个性化补学题",
+        prompt="自动化测试练习题。",
+        options=(),
+        standard_answer="测试答案",
+        rubric=(
+            RubricCriterion(
+                label="测试维度",
+                description="自动化测试评分。",
+                points=10.0,
+            ),
+        ),
+        knowledge_tags=("练习表现",),
+        difficulty="基础",
+        source_paper_ids=("practice-paper",),
+        evidence=(evidence,),
+        created_at="2026-11-16T00:00:00+00:00",
+    )
+    store.save_question(question)
+    tutor = PersonalTutorAgent(store)
+
+    initial = store.ensure_mastery(domain.domain_id)
+    initial_recommendation = tutor.recommend(domain.domain_id)
+    assert all(item.attempts_count == 0 for item in initial)
+    assert all(item.score == 0.0 for item in initial)
+    assert initial_recommendation.weak_dimensions == ()
+    assert "未测" in initial_recommendation.summary
+
+    store.record_attempt(
+        domain_id=domain.domain_id,
+        question=question,
+        user_answer="测试答案",
+        score=10.0,
+        feedback="自动化测试满分记录。",
+        mode="自动化测试",
+    )
+    tutor.update_mastery(domain.domain_id)
+    measured = store.ensure_mastery(domain.domain_id)
+
+    assert all(item.attempts_count == 1 for item in measured)
+    assert all(item.score == 100.0 for item in measured)
 
 
 def test_acceptance_workflow_runs_from_real_theme(

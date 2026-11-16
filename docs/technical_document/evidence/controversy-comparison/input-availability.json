@@ -1,0 +1,50 @@
+{
+  "method": "优先按保存的 SHA-256 与当前本地授权证据库精确匹配；仅在哈希未命中时使用论文ID与保存预览的唯一匹配；仅用于核验历史模型输入，未调用模型，未改写模型回答。",
+  "database": "data\\adolescent_fitness\\researchmind.sqlite3",
+  "question_count": 7,
+  "all_full_text_restored": true,
+  "checks": [
+    {
+      "file": "question-body-composition.json",
+      "input_evidence_count": 6,
+      "restored_full_text_count": 6,
+      "missing_or_ambiguous_hashes": []
+    },
+    {
+      "file": "question-cardiorespiratory.json",
+      "input_evidence_count": 3,
+      "restored_full_text_count": 3,
+      "missing_or_ambiguous_hashes": []
+    },
+    {
+      "file": "question-frequency.json",
+      "input_evidence_count": 3,
+      "restored_full_text_count": 3,
+      "missing_or_ambiguous_hashes": []
+    },
+    {
+      "file": "question-intensity.json",
+      "input_evidence_count": 3,
+      "restored_full_text_count": 3,
+      "missing_or_ambiguous_hashes": []
+    },
+    {
+      "file": "question-mental-health.json",
+      "input_evidence_count": 3,
+      "restored_full_text_count": 3,
+      "missing_or_ambiguous_hashes": []
+    },
+    {
+      "file": "question-muscular-strength.json",
+      "input_evidence_count": 5,
+      "restored_full_text_count": 5,
+      "missing_or_ambiguous_hashes": []
+    },
+    {
+      "file": "question-physical-fitness.json",
+      "input_evidence_count": 3,
+      "restored_full_text_count": 3,
+      "missing_or_ambiguous_hashes": []
+    }
+  ]
+}

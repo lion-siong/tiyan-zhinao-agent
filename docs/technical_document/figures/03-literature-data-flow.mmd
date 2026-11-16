@@ -1,0 +1,30 @@
+flowchart TB
+    Q1["文献自动采集页"] --> L["LiteratureCollector"]
+    L --> OA["OpenAlex 优先"]
+    OA -->|失败| CR["Crossref 回退"]
+    OA -->|成功| C["候选题录"]
+    CR --> C
+
+    Q2["智能文献研究页"] --> FC["Function Calling<br/>semantic_scholar_search"]
+    FC --> MR["MultiSourceRetriever"]
+    MR --> S1["Semantic Scholar"]
+    S1 --> S2["arXiv"]
+    S2 --> S3["OpenAlex"]
+    S3 --> S4["Crossref"]
+    S4 --> S5["PubMed"]
+    S5 --> C
+
+    C --> R["专题相关度预检"]
+    R --> D["DOI / 规范化标题去重"]
+    D --> M["SQLite 题录"]
+    D -->|仅确认开放获取| P["开放 PDF 下载"]
+    P --> H["SHA-256 / PDF 校验"]
+    H --> T["PyMuPDF 页级文本提取"]
+    T --> CH["页级证据切分"]
+    CH --> E["EvidenceRef<br/>论文 / 文件 / 页码 / 原文"]
+    E --> J["manifest.json 与证据索引"]
+    E --> SQL[("SQLite 证据表")]
+    E --> V["BM25 / Chroma"]
+    M -->|无可检索正文| MO["仅元数据<br/>禁止进入全文分析"]
+    L -. "两源链路" .-> NOTE["自动采集页不调用<br/>语义/预印本/PubMed"]
+    MR -. "五源固定顺序" .-> NOTE2["单源失败隔离<br/>汇总所有来源结果"]

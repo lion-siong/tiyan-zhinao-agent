@@ -1,0 +1,17 @@
+{
+  "fixture_notice": "自动化软件测试夹具，不是真实论文，不得作为科研证据或文献结论引用。",
+  "records": [
+    {
+      "fixture_id": "fixture-paper-a",
+      "title": "Software Test Fixture A",
+      "year": "2026",
+      "evidence": "SYNTHETIC TEST FIXTURE TEXT ONLY: deterministic evidence for parser and database tests."
+    },
+    {
+      "fixture_id": "fixture-paper-b",
+      "title": "Software Test Fixture B",
+      "year": "2026",
+      "evidence": "SYNTHETIC TEST FIXTURE TEXT ONLY: no empirical result is represented by this string."
+    }
+  ]
+}

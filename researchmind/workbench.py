@@ -417,7 +417,7 @@ def render_workbench(
                 key="workbench_task_input",
                 height=100,
                 placeholder=(
-                    "例如：研究大学生体育锻炼行为与体质健康水平的关系，"
+                    "例如：研究青少年体育锻炼干预与体质健康水平的关系，"
                     "并制定可执行的数据分析计划。"
                 ),
             )
@@ -425,7 +425,7 @@ def render_workbench(
             population = input_columns[0].text_input(
                 "研究对象",
                 key="workbench_population_input",
-                placeholder="例如：普通高校在校大学生",
+                placeholder="例如：12-18 岁在校青少年",
             )
             method = input_columns[1].text_input(
                 "方法或干预",
@@ -520,6 +520,13 @@ def render_workbench(
             f"当前领域有 {counts['evidence']} 条带页码证据。"
             "检索结果只展示真实 PDF 原文片段。"
         )
+        if counts["evidence"] == 0:
+            st.warning(
+                "当前青少年专题库还没有可追溯的 PDF 页码证据。"
+                "证据不足，暂不能判断；请先在“文献自动采集”或"
+                "“我的论文库”导入真实且相关的论文。",
+                icon=":material/library_books:",
+            )
         if "workbench_evidence_query_input" not in st.session_state:
             st.session_state["workbench_evidence_query_input"] = (
                 brief.evidence_query
@@ -592,8 +599,8 @@ def render_workbench(
             )
         elif evidence_searched:
             st.warning(
-                "本次检索没有命中可追溯原文。请调整关键词，或导入包含"
-                "相关内容的真实 PDF。",
+                "本次检索没有命中可追溯原文。证据不足，暂不能判断；"
+                "请调整关键词，或导入包含相关内容的真实 PDF。",
                 icon=":material/search_off:",
             )
         else:

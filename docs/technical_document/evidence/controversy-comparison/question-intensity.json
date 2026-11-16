@@ -1,0 +1,56 @@
+{
+  "input_evidence": [
+    {
+      "evidence_id": "E1",
+      "paper_id": "zotero-66RBHSFK",
+      "paper_title": "The effects of concurrent training on physical fitness in children and adolescents: a systematic review and meta-analysis",
+      "source_type": "全文",
+      "location": "第 15 页",
+      "quote_sha256": "589ac502080434827ce10c4a437eb712dca936bbac00a6b6e90e568ad0352d2e",
+      "quote_preview": "ces lower-body explosive power and aerobic capacity in \nchildren and adolescents. The most effective approach involves \nprioritizing strength training over endu",
+      "quote_text": "ces lower-body explosive power and aerobic capacity in \nchildren and adolescents. The most effective approach involves \nprioritizing strength training over endurance training, with no \ninterval between the two sessions. It is also recommended that \nan intervention period of 8 weeks will yield more signiﬁcant \neffects on training outcomes. Additionally, this study found no \nsigniﬁcant differences in other outcome measures. Given the \ninﬂuence of exercise intensity, the above conclusions require \nfurther validation and investigation.\nData availability statement\nThe original contributions presented in the study are included \nin the article/Supplementary Material, further inquiries can be",
+      "quote_length": 693,
+      "quote_text_status": "按SHA-256精确匹配，从本地授权证据库还原",
+      "quote_match_count": 1
+    },
+    {
+      "evidence_id": "E2",
+      "paper_id": "zotero-U3K42ZLA",
+      "paper_title": "The effect of a one-year vigorous physical activity intervention on fitness, cognitive performance and mental health in young adolescents: the Fit to Study cluster randomised controlled trial",
+      "source_type": "摘要",
+      "location": "摘要（未提供可检索全文）",
+      "quote_sha256": "a82b7d5bd2a260ebcfa6b37b564dc52ec338aba2ffac8447e1a0fff96a247535",
+      "quote_preview": "Abstract Background Physical activity (PA) may positively stimulate the brain, cognition and mental health during adolescence, a period of dynamic neurobiologic",
+      "quote_text": "Abstract Background Physical activity (PA) may positively stimulate the brain, cognition and mental health during adolescence, a period of dynamic neurobiological development. High-intensity interval training (HIIT) or vigorous PA interventions are time-efficient, scalable and can be easily implemented in existing school curricula, yet their effects on cognitive, academic and mental health outcomes are unclear. The primary aim of the Fit to Study trial was to investigate whether a pragmatic and scalable HIIT-style VPA intervention delivered during school physical education (PE) could improve attainment in maths. The primary outcome has previously been reported and was null. Here, we report the effect of the intervention on prespecified secondary outcomes, including cardiorespiratory fitness, cognitive performance, and mental health in young adolescents. Methods The Fit to Study cluster randomised controlled trial included Year 8 pupils ( n = 18,261, aged 12–13) from 104 secondary state schools in South/Mid-England. Schools were randomised into an intervention condition ( n = 52), in which PE teachers delivered an additional 10 min of VPA per PE lesson for one academic year (2017–2018), or into a “PE as usual” control condition. Secondary outcomes included assessments of cardiorespiratory fitness (20-m shuttle run), cognitive performance (executive functions, relational memory and processing speed) and mental health (Strength and Difficulties Questionnaire and self-esteem measures). The primary intention-to-treat (ITT) analysis used linear models and structural equation models with cluster-robust standard errors to test for intervention effects. A complier-average causal effect (CACE) was estimated using a two-stage least squares procedure. Results The HIIT-style VPA intervention did not significantly improve cardiorespiratory fitness, cognitive performance (executive functions, relational memory or processed speed), or mental health (all p > 0.05). Subgroup analyses showed no significant moderation of intervention effects by sex, socioeconomic status or baseline fitness levels. Changes in cardiorespiratory fitness were not significantly related to changes in cognitive or mental health outcomes. The trial was marked by high drop-out and low intervention compliance. Findings from the CACE analysis were in line with those from the ITT analysis. Conclusion The one-academic year HIIT-style VPA intervention delivered during regular school PE did not significantly improve fitness, cognitive performance or mental health, but these findings should be interpreted with caution given low implementation fidelity and high drop-out. Well-controlled, large-scale, school-based trials that examine the effectiveness of HIIT-style interventions to enhance cognitive and mental health outcomes are warranted. Trial registration ISRCTN registry, 15,730,512 . Trial protocol and analysis plan for primary outcome prospectively registered on 30th March 2017. ClinicalTrials.gov , NCT03286725 . Secondary measures (focus of current manuscript) retrospectively registered on 18 September 2017.",
+      "quote_length": 3117,
+      "quote_text_status": "按论文ID与保存预览前140字符匹配，存在嵌套片段时取最长片段，从本地授权证据库还原",
+      "quote_match_count": 1
+    },
+    {
+      "evidence_id": "E3",
+      "paper_id": "zotero-M8U2UA4Z",
+      "paper_title": "Comparative effectiveness of school-based physical activity interventions on moderate-to-vigorous physical activity in children and adolescents: a systematic review and network meta-analysis",
+      "source_type": "全文",
+      "location": "第 9 页",
+      "quote_sha256": "30f1dca2253d290f98359fcac67aec2b00ec8c4987e895634e4f87b7136b47ba",
+      "quote_preview": "condition.\nTable 1 presents the direct comparison results, NMA \nestimates, and P-score rankings for each intervention \nstrategy. The NMA showed that PE/curricul",
+      "quote_text": "condition.\nTable 1 presents the direct comparison results, NMA \nestimates, and P-score rankings for each intervention \nstrategy. The NMA showed that PE/curriculum-focused \ninterventions were associated with significantly higher \nMVPA than the control condition (SMD = 0.21, 95% CI: \n0.07 to 0.35, p = 0.003). Whole-school interventions also \nshowed a significant positive effect (SMD = 0.21, 95% CI: \n0.07 to 0.34, p = 0.004). In contrast, additional PA oppor­\ntunities beyond the regular curriculum showed a positive \nbut non-significant effect (SMD = 0.07, 95% CI: −0.05 to \n0.18, p = 0.267).\nThe direct comparison results were generally consis­",
+      "quote_length": 647,
+      "quote_text_status": "按SHA-256精确匹配，从本地授权证据库还原",
+      "quote_match_count": 1
+    }
+  ],
+  "model_response": {
+    "has_conflict": false,
+    "conflict_question": "",
+    "viewpoint_a": "",
+    "papers_a": [],
+    "viewpoint_b": "",
+    "papers_b": [],
+    "citations": [],
+    "confidence": 0.93,
+    "explanation": "提供的证据未在同一结局、同一方向比较下报告相反结果。E2 研究 HIIT 式剧烈身体活动对体能、认知和心理健康的影响，结果为不显著；E3 的结局是 MVPA 行为，不是相同的健康效果结局，且显示部分学校干预可提高 MVPA；E1 讨论同期训练安排并提及运动强度影响需进一步验证，未提供与 E2 相反的健康效果结果。因此无法判定存在真实学术争议。"
+  },
+  "raw_response": "{\"has_conflict\":false,\"conflict_question\":\"\",\"viewpoint_a\":\"\",\"papers_a\":[],\"viewpoint_b\":\"\",\"papers_b\":[],\"citations\":[],\"confidence\":0.93,\"explanation\":\"提供的证据未在同一结局、同一方向比较下报告相反结果。E2 研究 HIIT 式剧烈身体活动对体能、认知和心理健康的影响，结果为不显著；E3 的结局是 MVPA 行为，不是相同的健康效果结局，且显示部分学校干预可提高 MVPA；E1 讨论同期训练安排并提及运动强度影响需进一步验证，未提供与 E2 相反的健康效果结果。因此无法判定存在真实学术争议。\"}",
+  "error": ""
+}

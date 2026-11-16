@@ -25,6 +25,11 @@ class Settings:
     app_subtitle: str = "基于大语言模型与多智能体协作的体育科研全流程智能助手"
     project_root: Path = PROJECT_ROOT
     researchmind_db_path: Path | None = field(default=None, repr=False)
+    adolescent_db_path: Path | None = field(default=None, repr=False)
+    adolescent_knowledge_base_path: Path | None = field(
+        default=None,
+        repr=False,
+    )
     openai_api_key: str = field(default="", repr=False)
     openai_base_url: str = "https://api.openai.com/v1"
     openai_model: str = "gpt-4o-mini"
@@ -36,6 +41,15 @@ class Settings:
     semantic_scholar_timeout_seconds: int = 25
     semantic_scholar_max_results: int = 20
     arxiv_api_url: str = "https://export.arxiv.org/api/query"
+    arxiv_timeout_seconds: int = 10
+    pubmed_api_key: str = field(default="", repr=False)
+    pubmed_base_url: str = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils"
+    retrieval_timeout_seconds: int = 12
+    retrieval_max_retries: int = 2
+    retrieval_base_backoff_seconds: float = 1.0
+    retrieval_max_backoff_seconds: float = 8.0
+    retrieval_request_interval_seconds: float = 0.5
+    retrieval_cache_ttl_seconds: int = 1800
     max_pdf_size_mb: int = 20
     max_upload_size_mb: int = 30
     max_pdf_pages: int = 80
@@ -66,6 +80,12 @@ class Settings:
             researchmind_db_path=_read_optional_path(
                 values.get("RESEARCHMIND_DB_PATH")
             ),
+            adolescent_db_path=_read_optional_path(
+                values.get("ADOLESCENT_RESEARCHMIND_DB_PATH")
+            ),
+            adolescent_knowledge_base_path=_read_optional_path(
+                values.get("ADOLESCENT_KNOWLEDGE_BASE_DIR")
+            ),
             openai_api_key=values.get("OPENAI_API_KEY", "").strip(),
             openai_base_url=values.get(
                 "OPENAI_BASE_URL", "https://api.openai.com/v1"
@@ -93,6 +113,33 @@ class Settings:
                 "https://export.arxiv.org/api/query",
             ).strip()
             or "https://export.arxiv.org/api/query",
+            arxiv_timeout_seconds=_read_positive_int(
+                values.get("ARXIV_TIMEOUT_SECONDS"), default=10
+            ),
+            pubmed_api_key=values.get("PUBMED_API_KEY", "").strip(),
+            pubmed_base_url=values.get(
+                "PUBMED_BASE_URL",
+                "https://eutils.ncbi.nlm.nih.gov/entrez/eutils",
+            ).strip()
+            or "https://eutils.ncbi.nlm.nih.gov/entrez/eutils",
+            retrieval_timeout_seconds=_read_positive_int(
+                values.get("RETRIEVAL_TIMEOUT_SECONDS"), default=12
+            ),
+            retrieval_max_retries=_read_non_negative_int(
+                values.get("RETRIEVAL_MAX_RETRIES"), default=2
+            ),
+            retrieval_base_backoff_seconds=_read_positive_float(
+                values.get("RETRIEVAL_BASE_BACKOFF_SECONDS"), default=1.0
+            ),
+            retrieval_max_backoff_seconds=_read_positive_float(
+                values.get("RETRIEVAL_MAX_BACKOFF_SECONDS"), default=8.0
+            ),
+            retrieval_request_interval_seconds=_read_positive_float(
+                values.get("RETRIEVAL_REQUEST_INTERVAL_SECONDS"), default=0.5
+            ),
+            retrieval_cache_ttl_seconds=_read_non_negative_int(
+                values.get("RETRIEVAL_CACHE_TTL_SECONDS"), default=1800
+            ),
             max_pdf_size_mb=_read_positive_int(
                 values.get("MAX_PDF_SIZE_MB"), default=20
             ),
@@ -177,6 +224,33 @@ class Settings:
         return self.project_root / "knowledge_base"
 
     @property
+    def legacy_db_path(self) -> Path:
+        return (
+            self.researchmind_db_path
+            or self.data_dir / "researchmind.sqlite3"
+        )
+
+    @property
+    def legacy_knowledge_base_dir(self) -> Path:
+        return self.knowledge_base_dir
+
+    @property
+    def adolescent_topic_db_path(self) -> Path:
+        return (
+            self.adolescent_db_path
+            or self.data_dir
+            / "adolescent_fitness"
+            / "researchmind.sqlite3"
+        )
+
+    @property
+    def adolescent_topic_knowledge_base_dir(self) -> Path:
+        return (
+            self.adolescent_knowledge_base_path
+            or self.project_root / "knowledge_base_adolescent"
+        )
+
+    @property
     def embedding_cache_dir(self) -> Path:
         return self.data_dir / "models"
 
@@ -211,6 +285,18 @@ def _read_retrieval_mode(value: str | None, default: str) -> str:
     allowed = {"hybrid", "semantic", "bm25"}
     normalized = str(value or "").strip().lower()
     return normalized if normalized in allowed else default
+
+
+def _read_positive_float(value: str | None, default: float) -> float:
+    """读取正浮点配置，非法值自动回退到默认值。"""
+
+    if value is None:
+        return default
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return default
+    return parsed if parsed > 0 else default
 
 
 def _read_optional_path(value: str | None) -> Path | None:

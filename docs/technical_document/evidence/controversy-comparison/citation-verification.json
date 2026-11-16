@@ -1,0 +1,151 @@
+{
+  "verification_scope": "引用编号归属与输入全文可用性；不包含论断支持关系或专家结论",
+  "question_count": 7,
+  "citation_instances": 9,
+  "invalid_citation_instances": 0,
+  "paper_reference_instances": 7,
+  "invalid_paper_instances": 0,
+  "all_citations_found_in_input_context": true,
+  "all_papers_found_in_input_context": true,
+  "full_text_available_evidence_count": 26,
+  "full_text_missing_evidence_count": 0,
+  "claim_support_verified_count": 0,
+  "claim_support_pending_count": 7,
+  "claim_support_verified": false,
+  "manual_review_required": true,
+  "checks": [
+    {
+      "question": "体育锻炼与心肺耐力",
+      "citations": [
+        "E2",
+        "E3"
+      ],
+      "papers": [
+        "zotero-JIVJ9QC9",
+        "zotero-U3K42ZLA"
+      ],
+      "invalid_citations": [],
+      "invalid_papers": [],
+      "full_text_available_evidence": [
+        "E1",
+        "E2",
+        "E3"
+      ],
+      "full_text_missing_evidence": [],
+      "claim_support_status": "待人工复核",
+      "claim_support_note": "本脚本只验证引用编号属于保存的输入上下文；编号存在不等于原文支持模型论断。"
+    },
+    {
+      "question": "体育锻炼与身体成分",
+      "citations": [
+        "E2"
+      ],
+      "papers": [
+        "zotero-NEYC7LDS",
+        "zotero-NEYC7LDS"
+      ],
+      "invalid_citations": [],
+      "invalid_papers": [],
+      "full_text_available_evidence": [
+        "E1",
+        "E2",
+        "E3",
+        "E4",
+        "E5",
+        "E6"
+      ],
+      "full_text_missing_evidence": [],
+      "claim_support_status": "待人工复核",
+      "claim_support_note": "本脚本只验证引用编号属于保存的输入上下文；编号存在不等于原文支持模型论断。"
+    },
+    {
+      "question": "体育锻炼与肌肉力量",
+      "citations": [],
+      "papers": [],
+      "invalid_citations": [],
+      "invalid_papers": [],
+      "full_text_available_evidence": [
+        "E1",
+        "E2",
+        "E3",
+        "E4",
+        "E5"
+      ],
+      "full_text_missing_evidence": [],
+      "claim_support_status": "待人工复核",
+      "claim_support_note": "本脚本只验证引用编号属于保存的输入上下文；编号存在不等于原文支持模型论断。"
+    },
+    {
+      "question": "体育锻炼与身体素质",
+      "citations": [],
+      "papers": [],
+      "invalid_citations": [],
+      "invalid_papers": [],
+      "full_text_available_evidence": [
+        "E1",
+        "E2",
+        "E3"
+      ],
+      "full_text_missing_evidence": [],
+      "claim_support_status": "待人工复核",
+      "claim_support_note": "本脚本只验证引用编号属于保存的输入上下文；编号存在不等于原文支持模型论断。"
+    },
+    {
+      "question": "体育锻炼与心理健康",
+      "citations": [
+        "E2",
+        "E1",
+        "E3"
+      ],
+      "papers": [
+        "zotero-B7K7UC8W",
+        "zotero-IPZI3NA4",
+        "zotero-U3K42ZLA"
+      ],
+      "invalid_citations": [],
+      "invalid_papers": [],
+      "full_text_available_evidence": [
+        "E1",
+        "E2",
+        "E3"
+      ],
+      "full_text_missing_evidence": [],
+      "claim_support_status": "待人工复核",
+      "claim_support_note": "本脚本只验证引用编号属于保存的输入上下文；编号存在不等于原文支持模型论断。"
+    },
+    {
+      "question": "运动频率与健康效果",
+      "citations": [
+        "E1",
+        "E2",
+        "E3"
+      ],
+      "papers": [],
+      "invalid_citations": [],
+      "invalid_papers": [],
+      "full_text_available_evidence": [
+        "E1",
+        "E2",
+        "E3"
+      ],
+      "full_text_missing_evidence": [],
+      "claim_support_status": "待人工复核",
+      "claim_support_note": "本脚本只验证引用编号属于保存的输入上下文；编号存在不等于原文支持模型论断。"
+    },
+    {
+      "question": "运动强度与健康效果",
+      "citations": [],
+      "papers": [],
+      "invalid_citations": [],
+      "invalid_papers": [],
+      "full_text_available_evidence": [
+        "E1",
+        "E2",
+        "E3"
+      ],
+      "full_text_missing_evidence": [],
+      "claim_support_status": "待人工复核",
+      "claim_support_note": "本脚本只验证引用编号属于保存的输入上下文；编号存在不等于原文支持模型论断。"
+    }
+  ]
+}

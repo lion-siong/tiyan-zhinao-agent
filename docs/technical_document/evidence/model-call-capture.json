@@ -1,0 +1,19 @@
+{
+  "url": "http://127.0.0.1:8502",
+  "mode": "model",
+  "question": "青少年体育锻炼干预与心肺耐力之间是否存在一致的研究结论？",
+  "model_name": "deepseek-flash",
+  "tool_name": "semantic_scholar_search",
+  "attempted_source": "Semantic Scholar",
+  "actual_source": "arXiv",
+  "real_metadata_count": 4,
+  "run_mode": "Function Calling + 规则整理",
+  "has_run_mode": true,
+  "has_review": true,
+  "has_fallback_warning": false,
+  "uses_function_calling": true,
+  "uses_rule_mode": true,
+  "page_error": false,
+  "browser_errors": [],
+  "screenshot": "11-model-call-focus.png"
+}

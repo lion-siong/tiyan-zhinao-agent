@@ -1,0 +1,87 @@
+{
+  "generated_at": "2026-11-16T15:18:17+00:00",
+  "database_sha256": "9b7089f679aa108ce2023ca20984c371dcd1cce9295445901e7a7d62d77fa238",
+  "domain_id": "domain-510b94048a4c",
+  "core_domain": {
+    "domain_id": "domain-510b94048a4c",
+    "paper_count": 44,
+    "evidence_count": 3296,
+    "unique_evidence_ids": 3296,
+    "positive_page_count": 3296,
+    "nonempty_quote_hash_count": 3296
+  },
+  "all_database": {
+    "domains": 2,
+    "paper_count": 46,
+    "evidence_count": 3311,
+    "unique_evidence_ids": 3311,
+    "positive_page_count": 3311,
+    "nonempty_quote_hash_count": 3311
+  },
+  "knowledge_graph_node_count": 138,
+  "knowledge_graph_edge_count": 1220,
+  "source_counts": {
+    "项目内置真实论文清单": 1,
+    "OpenAlex": 4,
+    "Zotero Local API": 35,
+    "Crossref": 4
+  },
+  "parse_status_counts": {
+    "已解析": 25,
+    "摘要已解析": 16,
+    "仅元数据": 3
+  },
+  "category_counts": {
+    "体育锻炼干预": 1,
+    "青少年体质健康评价": 4,
+    "学校体育干预": 7,
+    "青少年心理健康": 6,
+    "青少年体质健康": 7,
+    "心理与运动行为影响": 2,
+    "体育锻炼与身体素质": 9,
+    "青少年体育影响因素": 6,
+    "运动处方与干预方案": 2
+  },
+  "files": {
+    "papers-44.csv": {
+      "rows": 44,
+      "bytes": 27132,
+      "sha256": "2445e5e5e500d9f0959a85faac446ea1d660cd4179de1fed4019b764d95dff74"
+    },
+    "papers-46-all-database.csv": {
+      "rows": 46,
+      "bytes": 28120,
+      "sha256": "c9e1094935844e614417d4667c246ba6e54172dc635d5bc20e895a0a95d64941"
+    },
+    "evidence-3296-core-domain.csv": {
+      "rows": 3296,
+      "bytes": 1929912,
+      "sha256": "799ecd10741149f2d1c3914b6c1315afcc95b1210c65126f353c3b43eb8e327a"
+    },
+    "evidence-3311-all-database.csv": {
+      "rows": 3311,
+      "bytes": 1940125,
+      "sha256": "af6e517e73c24a1696a4f7d7f58fd20adf18cb974881a6807c7a1465372cd112"
+    },
+    "knowledge-graph-nodes.csv": {
+      "rows": 138,
+      "bytes": 36573,
+      "sha256": "dcd4a688c30ccbf7b86ce8dd647aa00c441c13b2e9cbe2b4fcabbb5b99363cda"
+    },
+    "knowledge-graph-edges.csv": {
+      "rows": 1220,
+      "bytes": 251265,
+      "sha256": "77dfa50494d310f78a95a0a3fb421f7a21c4b43383ec4665396aa12191a6b7f5"
+    },
+    "knowledge-graph-statistics.json": {
+      "rows": 1,
+      "bytes": 1281,
+      "sha256": "2cc0dbdbdb8b4d9cf1125c678a4254d8e3f08e9fa64720e71c910b3e0e655bdc"
+    },
+    "evidence-synthesis-summary.json": {
+      "rows": 1,
+      "bytes": 9128,
+      "sha256": "ade14bf6f9f6df608640d8829b08af9ebc5963bf25f061804044c4d449b0e579"
+    }
+  }
+}

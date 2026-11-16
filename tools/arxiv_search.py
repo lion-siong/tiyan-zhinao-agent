@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -58,18 +59,25 @@ def arxiv_search(
         },
         method="GET",
     )
-    try:
-        with urllib.request.urlopen(
-            request,
-            timeout=current_config.semantic_scholar_timeout_seconds,
-        ) as response:
-            body = response.read().decode("utf-8", errors="replace")
-    except urllib.error.HTTPError as exc:
-        raise ArxivSearchError(
-            f"arXiv 返回 HTTP {exc.code}。"
-        ) from exc
-    except (urllib.error.URLError, TimeoutError, OSError) as exc:
-        raise ArxivSearchError(f"无法连接 arXiv：{exc}") from exc
+    body = ""
+    for attempt in range(2):
+        try:
+            with urllib.request.urlopen(
+                request,
+                timeout=current_config.arxiv_timeout_seconds,
+            ) as response:
+                body = response.read().decode("utf-8", errors="replace")
+            break
+        except urllib.error.HTTPError as exc:
+            raise ArxivSearchError(
+                f"arXiv 返回 HTTP {exc.code}。"
+            ) from exc
+        except (urllib.error.URLError, TimeoutError, OSError) as exc:
+            if attempt == 0:
+                # 网络抖动或连接被卡时短退避后重试一次；仍失败再上抛清晰提示。
+                time.sleep(1.0)
+                continue
+            raise ArxivSearchError(f"无法连接 arXiv：{exc}") from exc
 
     try:
         root = ET.fromstring(body)

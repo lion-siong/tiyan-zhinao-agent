@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 from datetime import datetime
 from pathlib import Path
@@ -16,17 +17,47 @@ from typing import Any, Iterable, Mapping
 import pandas as pd
 import streamlit as st
 
+from researchmind.adolescent_library import (
+    assess_candidates,
+    create_adolescent_workflow,
+    create_library_backup,
+    create_legacy_workflow,
+    list_library_backups,
+    restore_library_backup,
+)
+from researchmind.adolescent_topic import (
+    CORE_DOMAIN_NAME,
+    INSUFFICIENT_EVIDENCE_TEXT,
+    assess_topic_relevance,
+)
+from researchmind.analysis_status_ui import (
+    clear_analysis_session_state,
+    render_analysis_update_status,
+    schedule_for_domain,
+)
+from researchmind.library_state import schedule_analysis_refresh
 from researchmind.agents import (
+    AssessmentGenerationError,
     FIELD_LABELS,
     chinese_evidence_option_text,
     chinese_only_excerpt,
 )
 from researchmind.collectors import (
     CollectionResult,
+    LITERATURE_SOURCES,
     LiteratureCollectionError,
     LiteratureCollector,
 )
+from researchmind.literature_import import (
+    ImportResult,
+    import_candidates,
+    library_status_for_candidates,
+    permanently_delete_papers,
+    restore_papers,
+    soft_delete_papers,
+)
 from researchmind.models import (
+    ASSESSMENT_MODULES,
     AssessmentQuestion,
     CandidatePaper,
     DebateAnalysis,
@@ -36,6 +67,10 @@ from researchmind.models import (
     ResearchDomain,
     ResearchSynthesis,
     ScoreResult,
+)
+from researchmind.knowledge_map_ui import (
+    render_knowledge_map_page,
+    render_knowledge_summary_page,
 )
 from researchmind.storage import ResearchMindStorageError
 from researchmind.workflow import (
@@ -47,12 +82,23 @@ from researchmind.workflow import (
     ResearchMindWorkflowError,
 )
 from researchmind.zotero_service import ZoteroError, ZoteroService
+from researchmind.zotero_local_service import (
+    ZOTERO_DOMAIN_NAME,
+    ZoteroLocalError,
+    probe_zotero_local,
+    sync_zotero_local_library,
+)
+from tools.knowledge_base import KnowledgeBaseError
 from tools.library_ingest import (
     IncomingPDF,
     IngestResult,
+    rebuild_library,
     ingest_pdf_files,
-    remove_library_documents,
 )
+from tools.pdf_metadata import extract_pdf_metadata
+from tools.pdf_reader import extract_pdf_text
+
+LOGGER = logging.getLogger(__name__)
 
 
 RESEARCHMIND_PAGES = (
@@ -63,32 +109,81 @@ RESEARCHMIND_PAGES = (
     "学术观点对比",
     "学术分歧分析",
     "知识图谱",
+    "知识图谱总结",
     "AI 学习测评",
     "错题本",
     "学习成长报告",
 )
 
+RESEARCHMIND_PAGE_ALIASES = {
+    "科研知识地图": "知识图谱",
+    "科研知识地图总结": "知识图谱总结",
+}
+
+LIBRARY_MODE_ADOLESCENT = "adolescent"
+LIBRARY_MODE_LEGACY = "legacy"
+LIBRARY_MODE_LABELS = {
+    LIBRARY_MODE_ADOLESCENT: "青少年专题库",
+    LIBRARY_MODE_LEGACY: "旧库只读",
+}
+LEGACY_READ_ONLY_PAGES = {
+    "学术领域管理",
+    "我的论文库",
+    "知识图谱",
+    "知识图谱总结",
+}
+
 _FIELD_ORDER = (
     "purpose",
     "population",
     "methods",
+    "interventions",
+    "comparators",
+    "measures",
     "results",
+    "statistics",
     "conclusions",
     "limitations",
 )
 
 
 @st.cache_resource
-def get_researchmind_workflow() -> ResearchMindWorkflow:
-    """创建共享工作流；SQLite 连接仍由存储层按操作短连接管理。"""
+def get_researchmind_workflow(
+    library_mode: str = LIBRARY_MODE_ADOLESCENT,
+) -> ResearchMindWorkflow:
+    """按页面模式创建共享工作流，专题库与旧库绝不混用路径。"""
 
-    return ResearchMindWorkflow()
+    if library_mode == LIBRARY_MODE_LEGACY:
+        return create_legacy_workflow()
+    if library_mode != LIBRARY_MODE_ADOLESCENT:
+        raise ValueError(f"未知论文库模式：{library_mode}")
+    return create_adolescent_workflow()
 
 
 def render_researchmind_page(page: str) -> None:
     """根据导航名称渲染 ResearchMind 页面。"""
 
-    workflow = get_researchmind_workflow()
+    page = RESEARCHMIND_PAGE_ALIASES.get(page, page)
+    library_mode = _render_library_mode_selector()
+    try:
+        workflow = get_researchmind_workflow(library_mode)
+    except (ResearchMindStorageError, ResearchMindWorkflowError, OSError, ValueError) as exc:
+        st.error(f"当前论文库暂时无法打开：{exc}")
+        if library_mode == LIBRARY_MODE_LEGACY:
+            st.caption(
+                "旧库只要不存在或不完整就会被拒绝访问，系统不会自动创建、"
+                "覆盖或迁移旧数据。请先检查原数据库和备份。"
+            )
+        return
+
+    if workflow.read_only and page not in LEGACY_READ_ONLY_PAGES:
+        st.info(
+            "旧库现在是只读回看模式。为避免在旧数据上产生新分析、题库或删除"
+            "操作，此页暂不开放；请切换到“青少年专题库”继续完整工作流。",
+            icon=":material/lock:",
+        )
+        return
+
     domain = _render_domain_selector(workflow)
     renderers = {
         "学术领域管理": _render_domain_management,
@@ -97,7 +192,8 @@ def render_researchmind_page(page: str) -> None:
         "论文智能阅读": _render_paper_reading,
         "学术观点对比": _render_viewpoint_comparison,
         "学术分歧分析": _render_debate_analysis,
-        "知识图谱": _render_knowledge_graph,
+        "知识图谱": render_knowledge_map_page,
+        "知识图谱总结": render_knowledge_summary_page,
         "AI 学习测评": _render_learning_assessment,
         "错题本": _render_wrong_answers,
         "学习成长报告": _render_learning_report,
@@ -118,8 +214,42 @@ def render_researchmind_page(page: str) -> None:
     ) as exc:
         st.error(f"当前操作未完成：{exc}")
     except Exception as exc:
+        LOGGER.exception("ResearchMind page failed: %s", page)
         st.error(f"页面暂时无法加载：{exc}")
         st.caption("数据不会被自动删除。请检查文献库、数据库或网络配置后重试。")
+
+
+def _render_library_mode_selector() -> str:
+    """显示紧凑的论文库模式切换，旧库只能作为只读备份入口。"""
+
+    current = st.session_state.get(
+        "researchmind_library_mode",
+        LIBRARY_MODE_ADOLESCENT,
+    )
+    if current not in LIBRARY_MODE_LABELS:
+        current = LIBRARY_MODE_ADOLESCENT
+    selected = st.segmented_control(
+        "论文库模式",
+        options=tuple(LIBRARY_MODE_LABELS),
+        format_func=lambda value: LIBRARY_MODE_LABELS[value],
+        default=current,
+        key="researchmind_library_mode_selector",
+        help=(
+            "青少年专题库用于当前研究与写入；旧库只读用于回看和恢复前核对，"
+            "不会复制或覆盖原有文件。"
+        ),
+    )
+    mode = str(selected or current)
+    st.session_state["researchmind_library_mode"] = mode
+    if mode == LIBRARY_MODE_LEGACY:
+        st.caption(
+            "旧库只读：不自动同步、不新建领域、不导入或删除论文。"
+        )
+    else:
+        st.caption(
+            f"专题方向：{CORE_DOMAIN_NAME}。不符合研究对象的论文不会进入核心图谱。"
+        )
+    return mode
 
 
 def _render_domain_selector(
@@ -127,32 +257,67 @@ def _render_domain_selector(
 ) -> ResearchDomain:
     """显示当前领域选择器，并确保选中领域有可用论文库。"""
 
-    default_domain = workflow.ensure_default_domain()
-    domains = workflow.store.list_domains()
+    if workflow.read_only:
+        domains = workflow.store.list_domains()
+        if not domains:
+            raise ResearchMindWorkflowError(
+                "旧论文库中没有可读取的研究领域，只读模式不会创建新领域。"
+            )
+        default_domain = domains[0]
+    else:
+        default_domain = workflow.ensure_default_domain()
+        domains = workflow.store.list_domains()
     domain_by_id = {domain.domain_id: domain for domain in domains}
     ids = tuple(domain_by_id)
-    session_key = "researchmind_active_domain"
+    session_key = (
+        "researchmind_active_domain_legacy"
+        if workflow.read_only
+        else "researchmind_active_domain"
+    )
     active_id = st.session_state.get(session_key)
-    if active_id not in domain_by_id:
-        active_id = default_domain.domain_id
+    preferred_id = (
+        None
+        if workflow.read_only
+        else workflow.store.get_metadata(
+            "researchmind_preferred_domain"
+        )
+    )
+    preferred_seen_key = "researchmind_preferred_domain_seen"
+    preferred_seen = st.session_state.get(preferred_seen_key)
+    if (
+        active_id not in domain_by_id
+        or (
+            preferred_id in domain_by_id
+            and preferred_id != preferred_seen
+        )
+    ):
+        active_id = (
+            preferred_id
+            if preferred_id in domain_by_id
+            else default_domain.domain_id
+        )
         st.session_state[session_key] = active_id
+        st.session_state[preferred_seen_key] = active_id
+
+    # selectbox 实例化前同步选择器初值；widget key 不能在实例化之后再写。
+    st.session_state["researchmind_domain_selector"] = active_id
 
     selected_id = st.selectbox(
         "当前研究领域",
         options=ids,
-        index=ids.index(active_id),
         format_func=lambda value: domain_by_id[value].name,
         key="researchmind_domain_selector",
         help="所有阅读、分析、题库和学习记录都会归入当前领域。",
     )
     st.session_state[session_key] = selected_id
+    if not workflow.read_only:
+        workflow.store.set_metadata(
+            "researchmind_preferred_domain",
+            selected_id,
+        )
+        st.session_state[preferred_seen_key] = selected_id
     domain = domain_by_id[selected_id]
 
-    if workflow.store.paper_count(domain.domain_id) == 0:
-        with st.spinner("首次进入该领域，正在同步项目内置真实论文库..."):
-            sync_result = workflow.sync_bundled_library(domain=domain)
-        st.caption(sync_result.message)
-        domain = workflow.store.get_domain(domain.domain_id) or domain
     return domain
 
 
@@ -165,11 +330,23 @@ def _render_domain_management(
         "学术领域管理",
         "用领域组织论文、知识体系、题库和学习记录。",
     )
-    st.info(
-        "项目内置真实论文库会在首次进入新领域时同步到该领域。"
-        "每个领域使用独立的论文与证据标识，不会覆盖其他领域的数据。",
-        icon=":material/hub:",
-    )
+    if workflow.read_only:
+        st.info(
+            "当前为旧库只读模式。页面只读取已有元数据、分析结果和证据，"
+            "不会同步、新建、覆盖或删除任何旧数据。",
+            icon=":material/lock:",
+        )
+    elif workflow.domain_name == CORE_DOMAIN_NAME:
+        st.info(
+            "当前专题库只服务“青少年体质健康与体育锻炼干预研究”。"
+            "新论文导入前会做本地相关度预检，不符合研究对象的文献不会进入核心图谱。",
+            icon=":material/verified:",
+        )
+    else:
+        st.info(
+            "论文与证据均来自独立论文库；不会自动从旧库复制内容。",
+            icon=":material/hub:",
+        )
 
     domains = workflow.store.list_domains()
     counts = workflow.store.counts(domain.domain_id)
@@ -185,41 +362,45 @@ def _render_domain_management(
         st.caption("关键词：" + "、".join(domain.keywords))
         st.caption(f"领域 ID：{domain.domain_id}")
 
-    with st.form("researchmind_create_domain_form"):
-        st.subheader("新建研究领域")
-        name = st.text_input(
-            "领域名称",
-            placeholder="例如：青少年运动技能学习与反馈",
-        )
-        description = st.text_area(
-            "领域说明",
-            placeholder="说明研究对象、核心问题和希望积累的证据范围。",
-            height=90,
-        )
-        keyword_text = st.text_input(
-            "检索关键词",
-            placeholder="运动技能、反馈、青少年（使用顿号或逗号分隔）",
-        )
-        submitted = st.form_submit_button(
-            "创建领域",
-            type="primary",
-            icon=":material/add_circle:",
-        )
-    if submitted:
-        keywords = _split_keywords(keyword_text)
-        if not name.strip():
-            st.error("领域名称不能为空。")
-        elif not keywords:
-            st.error("请至少填写一个检索关键词。")
-        else:
-            created = workflow.create_domain(
-                name=name,
-                description=description,
-                keywords=keywords,
+    if workflow.read_only:
+        st.caption("只读模式已禁用新建领域入口。")
+    elif workflow.domain_name == CORE_DOMAIN_NAME:
+        st.caption("专题版固定为唯一核心研究方向，已禁用新建领域入口。")
+    else:
+        with st.form("researchmind_create_domain_form"):
+            st.subheader("新建研究领域")
+            name = st.text_input(
+                "领域名称",
+                placeholder="例如：青少年运动技能学习与反馈",
             )
-            st.session_state["researchmind_active_domain"] = created.domain_id
-            st.session_state["researchmind_domain_selector"] = created.domain_id
-            st.rerun()
+            description = st.text_area(
+                "领域说明",
+                placeholder="说明研究对象、核心问题和希望积累的证据范围。",
+                height=90,
+            )
+            keyword_text = st.text_input(
+                "检索关键词",
+                placeholder="运动技能、反馈、青少年（使用顿号或逗号分隔）",
+            )
+            submitted = st.form_submit_button(
+                "创建领域",
+                type="primary",
+                icon=":material/add_circle:",
+            )
+        if submitted:
+            keywords = _split_keywords(keyword_text)
+            if not name.strip():
+                st.error("领域名称不能为空。")
+            elif not keywords:
+                st.error("请至少填写一个检索关键词。")
+            else:
+                created = workflow.create_domain(
+                    name=name,
+                    description=description,
+                    keywords=keywords,
+                )
+                st.session_state["researchmind_active_domain"] = created.domain_id
+                st.rerun()
 
     st.subheader("全部领域")
     rows = []
@@ -243,19 +424,20 @@ def _render_domain_management(
         alt="ResearchMind 学术领域清单",
     )
 
-    with st.container(horizontal=True, vertical_alignment="bottom"):
-        if st.button(
-            "强制同步项目论文库",
-            icon=":material/sync:",
-            help="重新读取 manifest.json 和证据索引，不重新解析 PDF 全文。",
-        ):
-            with st.spinner("正在同步真实论文元数据与证据..."):
-                result = workflow.sync_bundled_library(
-                    domain=domain,
-                    force=True,
-                )
-            _show_sync_result(result)
-            st.rerun()
+    if not workflow.read_only:
+        with st.container(horizontal=True, vertical_alignment="bottom"):
+            if st.button(
+                "同步当前专题库",
+                icon=":material/sync:",
+                help="重新读取专题库 manifest.json 和证据索引，不解析其他论文库。",
+            ):
+                with st.spinner("正在同步专题论文元数据与证据..."):
+                    result = workflow.sync_bundled_library(
+                        domain=domain,
+                        force=True,
+                    )
+                _show_sync_result(result)
+                st.rerun()
 
 
 def _render_literature_collection(
@@ -267,135 +449,333 @@ def _render_literature_collection(
         "文献自动采集",
         "从 OpenAlex 或 Crossref 检索真实元数据，只下载明确开放获取的 PDF。",
     )
-    zotero = ZoteroService(workflow.config)
-    zotero_status = zotero.status()
-    if zotero_status.configured:
-        st.success("Zotero Web API 已配置，可同步真实元数据或已取得的本地 PDF。")
-    else:
-        st.info(
-            "Zotero 尚未配置。本地论文库仍可正常使用；"
-            "如需同步，请在 .env 中填写 ZOTERO_API_KEY 和 ZOTERO_LIBRARY_ID。"
-        )
+    operation_notice = st.session_state.pop(
+        "researchmind_collection_notice",
+        "",
+    )
+    if operation_notice:
+        st.success(operation_notice)
 
+    with st.container(border=True):
+        st.subheader("Zotero 本地文库")
+        try:
+            zotero_local = probe_zotero_local()
+        except ZoteroLocalError as exc:
+            st.error(str(exc))
+        else:
+            st.caption(
+                f"已连接 {zotero_local['base_url']}，"
+                f"当前活动题录 {zotero_local['active_items']} 篇。"
+                "同步会写入独立的“Zotero 青少年体育文献库”领域，"
+                "不覆盖现有专题库。"
+            )
+            if st.button(
+                "同步 Zotero 本地活动论文",
+                icon=":material/sync_alt:",
+                key="researchmind_sync_zotero_local",
+            ):
+                try:
+                    with st.spinner(
+                        "正在读取 Zotero 题录与 PDF，并建立页级证据..."
+                    ):
+                        sync_result = sync_zotero_local_library(workflow)
+                        schedule_for_domain(
+                            workflow,
+                            sync_result.domain,
+                            force=True,
+                        )
+                except (ZoteroLocalError, OSError, ValueError) as exc:
+                    st.error(f"Zotero 本地库同步失败：{exc}")
+                else:
+                    st.session_state["researchmind_active_domain"] = (
+                        sync_result.domain.domain_id
+                    )
+                    st.session_state["researchmind_collection_notice"] = (
+                        f"{sync_result.message} 已切换到"
+                        f"“{ZOTERO_DOMAIN_NAME}”，并启动后台分析。"
+                    )
+                    st.rerun()
+
+    current_year = datetime.now().year
     with st.form("researchmind_collection_form"):
         query = st.text_input(
-            "检索主题",
-            value="大学生体育锻炼行为 体质健康",
-            placeholder="输入研究领域、关键词或英文检索词",
+            "研究主题",
+            value="青少年体质健康 体育锻炼干预",
+            placeholder="例如：青少年体育锻炼、运动干预与睡眠质量",
         )
-        controls = st.columns(2)
-        limit = controls[0].number_input(
-            "检索数量",
+        keywords = st.text_input(
+            "附加关键词（可选）",
+            placeholder="例如：随机对照试验、运动强度、心肺适能",
+        )
+        filter_columns = st.columns([1, 1, 1, 1])
+        year_from = filter_columns[0].number_input(
+            "起始年份",
+            min_value=1900,
+            max_value=current_year,
+            value=max(2021, current_year - 5),
+            step=1,
+        )
+        year_to = filter_columns[1].number_input(
+            "结束年份",
+            min_value=1900,
+            max_value=current_year,
+            value=current_year,
+            step=1,
+        )
+        source = filter_columns[2].selectbox(
+            "文献来源",
+            options=LITERATURE_SOURCES,
+            index=0,
+        )
+        limit = filter_columns[3].number_input(
+            "返回数量",
             min_value=1,
             max_value=25,
             value=10,
             step=1,
         )
-        date_from = controls[1].text_input(
-            "起始日期",
-            value=workflow.config.researchmind_date_from,
-            help="格式：YYYY-MM-DD。默认检索近三年。",
+        try_open_pdf = st.checkbox(
+            "尝试下载合法开放获取 PDF",
+            value=False,
+            help="仅下载 OpenAlex 明确标记开放获取且提供 PDF 地址的文件。",
         )
         submitted = st.form_submit_button(
-            "检索真实学术元数据",
+            "开始检索",
             type="primary",
             icon=":material/search:",
         )
+
     if submitted:
-        if not query.strip():
-            st.error("检索主题不能为空。")
+        clean_query = " ".join(
+            part.strip()
+            for part in (query, keywords)
+            if part.strip()
+        )
+        if not clean_query:
+            st.error("研究主题不能为空。")
+        elif int(year_from) > int(year_to):
+            st.error("起始年份不能晚于结束年份。")
         else:
-            with st.spinner("正在访问 OpenAlex / Crossref..."):
-                result = LiteratureCollector(workflow.config).search(
-                    query,
-                    limit=int(limit),
-                    date_from=date_from,
-                )
-            st.session_state["researchmind_collection_result"] = result
+            try:
+                with st.spinner("正在访问 OpenAlex / Crossref..."):
+                    result = LiteratureCollector(workflow.config).search(
+                        clean_query,
+                        limit=int(limit),
+                        date_from=f"{int(year_from)}-01-01",
+                        date_to=f"{int(year_to)}-12-31",
+                        source=source,
+                    )
+            except LiteratureCollectionError as exc:
+                st.error(f"文献检索失败：{exc}")
+            else:
+                st.session_state["researchmind_collection_result"] = result
+                st.session_state["researchmind_collection_selection"] = []
 
     result = st.session_state.get("researchmind_collection_result")
     if not isinstance(result, CollectionResult):
         st.caption(
-            "检索结果不会自动写入本地论文库。请先检查题名、作者、DOI 和来源，"
-            "再决定是否下载开放 PDF 或同步到 Zotero。"
+            "检索只获取公开元数据。选择论文后可导入当前专题论文库；"
+            "全文仅来自合法开放 PDF 或你上传的本地文件。"
         )
         return
 
     st.divider()
-    metric_columns = st.columns(4)
+    statuses = library_status_for_candidates(
+        workflow.store,
+        domain.domain_id,
+        result.candidates,
+    )
+    imported_count = sum(
+        status.status == "已导入" for status in statuses.values()
+    )
+    deleted_count = sum(
+        status.status == "回收站" for status in statuses.values()
+    )
+    metric_columns = st.columns(5)
     metric_columns[0].metric("来源", result.source)
     metric_columns[1].metric("真实元数据", f"{len(result.candidates)} 篇")
     metric_columns[2].metric("开放 PDF", f"{sum(c.has_open_pdf for c in result.candidates)} 篇")
-    metric_columns[3].metric("起始日期", result.date_from)
+    metric_columns[3].metric("已导入", f"{imported_count} 篇")
+    metric_columns[4].metric("回收站", f"{deleted_count} 篇")
     for warning in result.warnings:
         st.warning(warning)
     if not result.candidates:
         st.info("来源没有返回可核验论文，未写入任何记录，也没有生成替代引用。")
         return
 
-    rows = [
-        {
-            "候选 ID": item.candidate_id,
-            "题名": item.title,
-            "作者": item.authors_text if hasattr(item, "authors_text") else "、".join(item.authors),
-            "年份": item.year,
-            "期刊": item.journal,
-            "DOI": item.doi,
-            "来源": item.source,
-            "开放 PDF": "有" if item.has_open_pdf else "仅元数据",
-        }
-        for item in result.candidates
-    ]
+    rows = []
+    for candidate in result.candidates:
+        relevance = assess_topic_relevance(
+            title=candidate.title,
+            abstract=candidate.abstract,
+            keywords=candidate.keywords,
+        )
+        rows.append(
+            {
+                "题名": candidate.title,
+                "作者": candidate.authors_text,
+                "年份": candidate.year,
+                "期刊": candidate.journal,
+                "DOI": candidate.doi,
+                "来源": candidate.source,
+                "开放 PDF": "有" if candidate.has_open_pdf else "仅元数据",
+                "专题相关度": relevance.display_status,
+                "论文库状态": statuses[candidate.candidate_id].status,
+            }
+        )
     st.dataframe(
         pd.DataFrame(rows),
         width="stretch",
         hide_index=True,
-        alt="学术来源返回的真实论文元数据",
-    )
-    st.caption(
-        "“仅元数据”表示尚未获得可确认的开放 PDF；系统不会绕过付费墙，"
-        "也不会把候选元数据冒充为已解析全文。"
+        alt="学术来源返回的真实论文元数据及论文库状态",
     )
 
-    candidate_by_id = {item.candidate_id: item for item in result.candidates}
-    selected_id = st.selectbox(
-        "选择要处理的论文",
-        options=tuple(candidate_by_id),
-        format_func=lambda value: candidate_by_id[value].title,
-        key="researchmind_candidate_selector",
+    candidate_by_id = {
+        candidate.candidate_id: candidate
+        for candidate in result.candidates
+    }
+    candidate_ids = tuple(candidate_by_id)
+    selection_key = "researchmind_collection_selection"
+    select_columns = st.columns([1, 1, 3])
+    if select_columns[0].button(
+        "全选",
+        icon=":material/select_all:",
+        key="researchmind_collection_select_all",
+    ):
+        st.session_state[selection_key] = list(candidate_ids)
+        st.rerun()
+    if select_columns[1].button(
+        "取消选择",
+        icon=":material/deselect:",
+        key="researchmind_collection_clear",
+    ):
+        st.session_state[selection_key] = []
+        st.rerun()
+    selected_ids = tuple(
+        st.multiselect(
+            "选择要导入的论文",
+            options=candidate_ids,
+            format_func=lambda value: (
+                f"{candidate_by_id[value].title}"
+                f"（{statuses[value].status}）"
+            ),
+            key=selection_key,
+        )
     )
-    candidate = candidate_by_id[selected_id]
-    _render_candidate_detail(candidate)
+    select_columns[2].caption(
+        f"已选择 {len(selected_ids)} 篇；重复论文不会生成第二条记录。"
+    )
 
-    action_columns = st.columns(2)
+    st.subheader("检索结果")
+    for candidate in result.candidates:
+        status = statuses[candidate.candidate_id]
+        relevance = assess_topic_relevance(
+            title=candidate.title,
+            abstract=candidate.abstract,
+            keywords=candidate.keywords,
+        )
+        with st.expander(
+            f"{candidate.title}｜{candidate.year}｜{status.status}",
+            icon=":material/article:",
+        ):
+            _render_candidate_detail(candidate)
+            detail_columns = st.columns(3)
+            detail_columns[0].caption(f"来源：{candidate.source}")
+            detail_columns[1].caption(
+                f"专题相关度：{relevance.display_status}"
+            )
+            detail_columns[2].caption(
+                "开放 PDF："
+                + ("可尝试下载" if candidate.has_open_pdf else "仅元数据")
+            )
+            if st.button(
+                (
+                    "从回收站恢复并导入"
+                    if status.status == "回收站"
+                    else "导入论文库"
+                ),
+                type="primary" if status.status == "未导入" else "secondary",
+                icon=":material/library_add:",
+                disabled=status.status == "已导入",
+                key=f"researchmind_import_candidate_{candidate.candidate_id}",
+            ):
+                _import_collection_candidates(
+                    workflow,
+                    domain,
+                    (candidate,),
+                    download_open_pdf=bool(try_open_pdf),
+                )
+
+    st.divider()
+    action_columns = st.columns([1, 2])
     with action_columns[0]:
         if st.button(
-            "下载开放 PDF 并写入项目论文库",
+            f"批量导入已选 {len(selected_ids)} 篇",
             type="primary",
+            icon=":material/library_add:",
             width="stretch",
-            icon=":material/download:",
-            disabled=not candidate.has_open_pdf,
+            disabled=not selected_ids,
+            key="researchmind_collection_batch_import",
         ):
-            _download_and_ingest_candidate(
+            _import_collection_candidates(
                 workflow,
                 domain,
-                candidate,
+                tuple(candidate_by_id[item] for item in selected_ids),
+                download_open_pdf=bool(try_open_pdf),
             )
-    with action_columns[1]:
-        if st.button(
-            "仅同步元数据到 Zotero",
-            width="stretch",
-            icon=":material/library_add:",
-            disabled=not zotero_status.configured,
-        ):
-            try:
-                with st.spinner("正在把真实元数据写入 Zotero..."):
-                    item_key = zotero.add_candidate(candidate)
-            except ZoteroError as exc:
-                st.error(f"Zotero 同步失败：{exc}")
-            else:
-                st.success(f"已写入 Zotero，条目 key：{item_key}")
-                st.caption("Zotero 同步的是当前候选元数据，不代表项目已取得全文。")
+    action_columns[1].caption(
+        "“已导入”状态直接查询当前 SQLite；点击导入后系统会真实写入并校验记录数。"
+    )
+
+
+def _import_collection_candidates(
+    workflow: ResearchMindWorkflow,
+    domain: ResearchDomain,
+    candidates: tuple[CandidatePaper, ...],
+    *,
+    download_open_pdf: bool,
+) -> None:
+    """执行真实导入，并把数据库返回的统计结果交给下一轮页面展示。"""
+
+    try:
+        with st.spinner("正在写入论文库并校验数据库记录..."):
+            result = import_candidates(
+                workflow,
+                domain,
+                candidates,
+                download_open_pdf=download_open_pdf,
+            )
+    except (ValueError, OSError, RuntimeError) as exc:
+        st.error(f"论文导入失败：{exc}")
+        return
+
+    notice_parts = [
+        f"新导入 {result.imported} 篇",
+        f"补齐元数据 {result.updated} 篇",
+        f"从回收站恢复 {result.restored} 篇",
+        f"重复跳过 {result.skipped_duplicates} 篇",
+        f"专题不相关 {result.skipped_ineligible} 篇",
+        f"失败 {result.failed} 篇",
+    ]
+    if download_open_pdf:
+        notice_parts.append(f"开放 PDF 入库 {result.downloaded_pdfs} 篇")
+    detail = "；".join(notice_parts)
+    if result.messages:
+        detail += "。处理明细：" + "；".join(result.messages[:5])
+        if len(result.messages) > 5:
+            detail += f"；另有 {len(result.messages) - 5} 条明细"
+    if result.changed:
+        try:
+            schedule_for_domain(workflow, domain)
+        except Exception as exc:
+            st.error(
+                f"论文已导入，但后台分析启动失败：{type(exc).__name__}: {exc}"
+            )
+        else:
+            detail += "；已启动后台知识图谱与学术分歧更新。"
+            clear_analysis_session_state(domain.domain_id)
+    st.session_state["researchmind_collection_notice"] = detail
+    st.rerun()
 
 
 def _render_library(
@@ -405,8 +785,14 @@ def _render_library(
     _page_heading(
         "MY LIBRARY",
         "我的论文库",
-        "查看当前领域真实论文、证据数量、开放来源和本地 PDF 状态。",
+        "检索、解析、筛选和维护当前专题的真实论文与证据。",
     )
+    operation_notice = st.session_state.pop(
+        "researchmind_library_operation_notice",
+        "",
+    )
+    if operation_notice:
+        st.success(operation_notice)
     delete_notice = st.session_state.pop(
         "researchmind_paper_delete_notice",
         "",
@@ -414,147 +800,631 @@ def _render_library(
     if delete_notice:
         st.success(delete_notice)
     papers = workflow.store.list_papers(domain.domain_id)
+    deleted_papers = workflow.store.list_deleted_papers(domain.domain_id)
     evidence_count = workflow.store.evidence_count(domain.domain_id)
     zotero = ZoteroService(workflow.config)
     zotero_status = zotero.status()
-    metrics = st.columns(4)
+    metrics = st.columns(5)
     metrics[0].metric("论文", f"{len(papers)} 篇")
-    metrics[1].metric("证据片段", f"{evidence_count} 条")
+    metrics[1].metric(
+        "已解析",
+        f"{sum(paper.parse_status == '已解析' for paper in papers)} 篇",
+    )
     metrics[2].metric(
-        "PDF 可用",
-        f"{sum(Path(paper.pdf_path).is_file() for paper in papers)} 篇",
+        "待分析",
+        f"{sum(paper.analysis_status in {'未分析', '待分析'} for paper in papers)} 篇",
     )
     metrics[3].metric(
-        "年份覆盖",
-        _year_range(papers),
+        "已分析",
+        f"{sum(paper.analysis_status == '已分析' for paper in papers)} 篇",
+    )
+    metrics[4].metric("回收站", f"{len(deleted_papers)} 篇")
+    st.caption(
+        f"证据片段 {evidence_count} 条；"
+        f"本地 PDF {sum(Path(paper.pdf_path).is_file() for paper in papers)} 篇；"
+        f"年份覆盖 {_year_range(papers)}。"
     )
 
-    if not papers:
+    if not workflow.read_only:
+        _render_library_import(workflow, domain)
+
+    if not papers and not deleted_papers:
         st.warning(
             "当前领域还没有论文。请通过“文献自动采集”导入开放论文，"
-            "或使用其他已授权的 PDF 建立论文库。"
+            "或上传你有权使用的 PDF 建立专题论文库。"
+            "检索题录不等同于已获取全文。"
         )
-        if st.button("刷新论文库状态", icon=":material/sync:"):
-            result = workflow.sync_bundled_library(domain=domain, force=True)
-            _show_sync_result(result)
-            st.rerun()
+        if not workflow.read_only:
+            _render_library_backup_management(workflow)
         return
 
-    filter_columns = st.columns([2, 1, 1])
-    search = filter_columns[0].text_input(
-        "筛选论文",
-        placeholder="输入题名、作者、期刊或 DOI",
-    )
-    years = tuple(sorted({paper.year for paper in papers}, reverse=True))
-    selected_year = filter_columns[1].selectbox(
-        "年份",
-        options=("全部", *years),
-    )
-    selected_access = filter_columns[2].selectbox(
-        "PDF 状态",
-        options=("全部", "本地 PDF 可用", "仅元数据"),
-    )
-
-    lowered = search.strip().lower()
-    filtered = []
-    for paper in papers:
-        haystack = " ".join(
-            (
-                paper.title,
-                paper.authors_text,
-                paper.journal,
-                paper.doi,
-                " ".join(paper.keywords),
-            )
-        ).lower()
-        if lowered and lowered not in haystack:
-            continue
-        if selected_year != "全部" and paper.year != selected_year:
-            continue
-        exists = Path(paper.pdf_path).is_file()
-        if selected_access == "本地 PDF 可用" and not exists:
-            continue
-        if selected_access == "仅元数据" and exists:
-            continue
-        filtered.append(paper)
-
-    rows = [
-        {
-            "题名": paper.title,
-            "作者": paper.authors_text,
-            "年份": paper.year,
-            "期刊": paper.journal,
-            "DOI": paper.doi,
-            "关键词": "、".join(paper.keywords),
-            "PDF": "可用" if Path(paper.pdf_path).is_file() else "缺失",
-        }
-        for paper in filtered
-    ]
-    st.dataframe(
-        pd.DataFrame(rows),
-        width="stretch",
-        hide_index=True,
-        alt="当前研究领域的真实论文清单",
-    )
-    st.download_button(
-        "下载论文清单 CSV",
-        data=pd.DataFrame(rows).to_csv(index=False).encode("utf-8-sig"),
-        file_name="researchmind_papers.csv",
-        mime="text/csv",
-        icon=":material/download:",
-    )
-
-    st.subheader("论文详情")
-    paper_by_id = {paper.paper_id: paper for paper in filtered}
-    if paper_by_id:
-        selected_paper_id = st.selectbox(
-            "选择论文",
-            options=tuple(paper_by_id),
-            format_func=lambda value: paper_by_id[value].title,
-            key="researchmind_library_paper",
+    filtered: list[PaperRecord] = []
+    if papers:
+        filter_columns = st.columns([2.2, 1.2, 0.9, 1, 1])
+        search = filter_columns[0].text_input(
+            "筛选论文",
+            placeholder="题名、作者、期刊或 DOI",
         )
-        selected_paper = paper_by_id[selected_paper_id]
-        _render_paper_metadata(selected_paper)
-        pdf_available = Path(selected_paper.pdf_path).is_file()
+        categories = tuple(
+            sorted({paper.category for paper in papers if paper.category})
+        )
+        selected_category = filter_columns[1].selectbox(
+            "分类",
+            options=("全部", *categories),
+        )
+        years = tuple(sorted({paper.year for paper in papers}, reverse=True))
+        selected_year = filter_columns[2].selectbox(
+            "年份",
+            options=("全部", *years),
+        )
+        selected_pdf = filter_columns[3].selectbox(
+            "PDF 状态",
+            options=("全部", "本地 PDF 可用", "PDF 缺失"),
+        )
+        selected_analysis = filter_columns[4].selectbox(
+            "分析状态",
+            options=("全部", "未分析", "待分析", "已分析", "待补充全文"),
+        )
+        second_filters = st.columns([1, 1, 2])
+        selected_parse = second_filters[0].selectbox(
+            "解析状态",
+            options=("全部", "仅元数据", "已解析"),
+        )
+        sort_order = second_filters[1].selectbox(
+            "排序",
+            options=(
+                "导入时间（最新）",
+                "导入时间（最早）",
+                "发表年份（最新）",
+                "题名",
+            ),
+        )
+        second_filters[2].caption(
+            "删除采用两阶段流程：先移入回收站，永久删除前自动备份。"
+        )
+
+        lowered = search.strip().lower()
+        for paper in papers:
+            haystack = " ".join(
+                (
+                    paper.title,
+                    paper.authors_text,
+                    paper.journal,
+                    paper.doi,
+                    paper.source,
+                    paper.category,
+                    " ".join(paper.keywords),
+                )
+            ).lower()
+            if lowered and lowered not in haystack:
+                continue
+            if (
+                selected_category != "全部"
+                and paper.category != selected_category
+            ):
+                continue
+            if selected_year != "全部" and paper.year != selected_year:
+                continue
+            has_pdf = Path(paper.pdf_path).is_file()
+            if selected_pdf == "本地 PDF 可用" and not has_pdf:
+                continue
+            if selected_pdf == "PDF 缺失" and has_pdf:
+                continue
+            if (
+                selected_parse != "全部"
+                and paper.parse_status != selected_parse
+            ):
+                continue
+            if (
+                selected_analysis != "全部"
+                and paper.analysis_status != selected_analysis
+            ):
+                continue
+            filtered.append(paper)
+
+        if sort_order == "导入时间（最新）":
+            filtered.sort(key=lambda item: item.imported_at, reverse=True)
+        elif sort_order == "导入时间（最早）":
+            filtered.sort(key=lambda item: item.imported_at)
+        elif sort_order == "发表年份（最新）":
+            filtered.sort(key=lambda item: item.year, reverse=True)
+        else:
+            filtered.sort(key=lambda item: item.title.casefold())
+
+        rows = [
+            {
+                "题名": paper.title,
+                "作者": paper.authors_text,
+                "年份": paper.year,
+                "期刊": paper.journal,
+                "DOI": paper.doi,
+                "来源": paper.source,
+                "分类": paper.category,
+                "导入时间": _display_timestamp(paper.imported_at),
+                "PDF": "可用" if Path(paper.pdf_path).is_file() else "缺失",
+                "解析状态": paper.parse_status,
+                "分析状态": paper.analysis_status,
+            }
+            for paper in filtered
+        ]
+        st.dataframe(
+            pd.DataFrame(rows),
+            width="stretch",
+            hide_index=True,
+            alt="当前研究领域的真实论文清单",
+        )
+        st.download_button(
+            "下载论文清单 CSV",
+            data=pd.DataFrame(rows).to_csv(index=False).encode("utf-8-sig"),
+            file_name="researchmind_papers.csv",
+            mime="text/csv",
+            icon=":material/download:",
+        )
+
+        st.subheader("论文详情")
+        paper_by_id = {paper.paper_id: paper for paper in filtered}
+        if paper_by_id:
+            selected_paper_id = st.selectbox(
+                "选择论文",
+                options=tuple(paper_by_id),
+                format_func=lambda value: paper_by_id[value].title,
+                key="researchmind_library_paper",
+            )
+            selected_paper = paper_by_id[selected_paper_id]
+            _render_paper_metadata(selected_paper)
+            pdf_available = Path(selected_paper.pdf_path).is_file()
+            evidence_available = bool(
+                workflow.store.list_evidence(selected_paper.paper_id, limit=1)
+            )
+            if not evidence_available:
+                st.warning(
+                    "当前论文仅有公开元数据，需导入合法获取的 PDF 后，"
+                    "才能进行全文阅读、证据提取和深度科研分析。",
+                    icon=":material/picture_as_pdf:",
+                )
+            action_columns = st.columns([1, 1, 1, 1])
+            if pdf_available:
+                try:
+                    pdf_bytes = Path(selected_paper.pdf_path).read_bytes()
+                except OSError as exc:
+                    action_columns[0].button(
+                        "下载本地 PDF",
+                        disabled=True,
+                        help=f"PDF 读取失败：{exc}",
+                    )
+                else:
+                    action_columns[0].download_button(
+                        "下载本地 PDF",
+                        data=pdf_bytes,
+                        file_name=Path(selected_paper.pdf_path).name,
+                        mime="application/pdf",
+                        icon=":material/download:",
+                    )
+            if action_columns[1].button(
+                "执行结构化阅读",
+                icon=":material/document_scanner:",
+                disabled=not evidence_available,
+                help=(
+                    "从已建正文证据中提取研究字段。"
+                    if evidence_available
+                    else "需先导入并解析合法获取的 PDF。"
+                ),
+            ):
+                with st.spinner("正在从真实证据中定位结构字段..."):
+                    workflow.reader.read_paper(selected_paper.paper_id)
+                schedule_for_domain(workflow, domain, force=True)
+                st.rerun()
+            if action_columns[2].button(
+                "同步到 Zotero",
+                icon=":material/library_add:",
+                disabled=not zotero_status.configured or not pdf_available,
+                help="仅在 Zotero 已配置且本地 PDF 可读取时启用。",
+            ):
+                try:
+                    with st.spinner("正在上传论文元数据与 PDF 到 Zotero..."):
+                        parent_key, attachment_key = zotero.add_paper_with_pdf(
+                            selected_paper
+                        )
+                except ZoteroError as exc:
+                    st.error(f"Zotero 同步失败：{exc}")
+                else:
+                    st.success(
+                        "已上传到 Zotero。"
+                        f"父条目 key：{parent_key}；"
+                        f"PDF 附件 key：{attachment_key}"
+                    )
+            if action_columns[3].button(
+                "删除当前论文",
+                icon=":material/delete:",
+                disabled=workflow.read_only,
+            ):
+                st.session_state["researchmind_delete_confirm_ids"] = (
+                    selected_paper.paper_id,
+                )
+                st.session_state["researchmind_delete_confirm_mode"] = "soft"
+                st.rerun()
+            if not zotero_status.configured:
+                st.caption(
+                    "Zotero 尚未配置，本地论文库不受影响。"
+                    "请通过 .env 配置 ZOTERO_API_KEY 和 ZOTERO_LIBRARY_ID。"
+                )
+
+            analysis = workflow.store.get_analysis(selected_paper.paper_id)
+            if analysis is not None:
+                with st.expander(
+                    "查看当前结构化阅读结果",
+                    on_change="ignore",
+                ):
+                    _render_analysis(analysis)
+            if pdf_available:
+                pdf_expander = st.expander(
+                    "在页面内查看 PDF",
+                    icon=":material/picture_as_pdf:",
+                    on_change="rerun",
+                )
+                if pdf_expander.open:
+                    with pdf_expander:
+                        st.pdf(
+                            selected_paper.pdf_path,
+                            height=620,
+                            alt=f"{selected_paper.title} 本地 PDF",
+                        )
+        else:
+            st.info("当前筛选条件下没有论文。")
+
+    if not workflow.read_only:
+        _render_library_removal(
+            workflow,
+            domain,
+            tuple(filtered or papers),
+        )
+
+    if workflow.read_only:
+        st.caption("旧库只读模式已禁用上传、删除、重新索引和恢复操作。")
+        return
+
+    with st.container(horizontal=True, vertical_alignment="center"):
         if st.button(
-            "同步元数据与 PDF 到 Zotero",
+            "同步最新专题论文库",
+            icon=":material/sync:",
+            help="同步专题库 manifest.json 和证据索引中的新增论文。",
+        ):
+            result = workflow.sync_bundled_library(domain=domain)
+            _show_sync_result(result)
+            if not result.used_cached_sync:
+                st.rerun()
+        if st.button(
+            "重新索引专题库",
+            icon=":material/refresh:",
+            help="重建证据索引、研究框架和向量库，不替换原始 PDF。",
+        ):
+            with st.spinner("正在重建专题证据索引和向量库..."):
+                rebuild = rebuild_library(workflow.knowledge_base_dir)
+                sync_result = workflow.sync_bundled_library(
+                    domain=domain,
+                    force=True,
+                )
+            st.success(
+                f"已重建 {len(rebuild.bundle.documents)} 篇论文、"
+                f"{len(rebuild.bundle.chunks)} 条证据。"
+            )
+            if rebuild.vector_warning:
+                st.warning(rebuild.vector_warning)
+            _show_sync_result(sync_result)
+            schedule_for_domain(workflow, domain, force=True)
+            st.rerun()
+
+    _render_library_backup_management(workflow)
+
+
+def _display_timestamp(value: str) -> str:
+    """把 ISO 时间压缩成适合表格阅读的展示文本。"""
+
+    clean = str(value).strip()
+    if not clean:
+        return "未知"
+    return clean[:16].replace("T", " ")
+
+
+def _paper_workflow_status(
+    paper: PaperRecord,
+    analysis: PaperAnalysis | None,
+) -> str:
+    """从数据库状态和真实资产推导论文流程状态。"""
+
+    if paper.analysis_status == "已分析":
+        return "已完成分析"
+    if paper.parse_status == "已解析":
+        return "已解析"
+    if Path(paper.pdf_path).is_file():
+        return "已获取全文"
+    return "检索到"
+
+
+def _render_library_import(
+    workflow: ResearchMindWorkflow,
+    domain: ResearchDomain,
+) -> None:
+    """提供多 PDF 上传、相关度预检、去重和批量入库入口。"""
+
+    with st.expander(
+        "批量导入论文 PDF",
+        icon=":material/upload_file:",
+        on_change="ignore",
+    ):
+        st.caption(
+            "仅导入你有权使用的本地 PDF。系统先读取题名、DOI、前几页原文并做"
+            "青少年专题相关度判断；范围外、重复或无可提取文本的文件不会进入核心库。"
+        )
+        uploaded_files = st.file_uploader(
+            "选择 PDF 文件",
+            type=("pdf",),
+            accept_multiple_files=True,
+            key=f"researchmind_pdf_batch_{domain.domain_id}",
+            help="支持一次选择多篇；每篇最多 20 MB，文件不会上传到第三方服务。",
+        )
+        if not uploaded_files:
+            st.caption("选择文件后会先显示预检结果，不会立即写入论文库。")
+            return
+
+        try:
+            preflight = _preflight_pdf_uploads(
+                workflow,
+                uploaded_files,
+                domain,
+            )
+        except (KnowledgeBaseError, OSError, ValueError, RuntimeError) as exc:
+            st.error(f"PDF 预检未完成：{exc}")
+            return
+
+        st.dataframe(
+            pd.DataFrame(
+                [
+                    {
+                        "文件": item["file_name"],
+                        "题名": item["title"],
+                        "年份": item["year"],
+                        "DOI": item["doi"],
+                        "专题相关度": item["relevance"],
+                        "预检结论": item["status"],
+                        "PDF SHA-256": item["sha256"][:16] + "…",
+                    }
+                    for item in preflight
+                ]
+            ),
+            width="stretch",
+            hide_index=True,
+            alt="批量 PDF 专题相关度和去重预检结果",
+        )
+        eligible = [item for item in preflight if item["eligible"]]
+        st.caption(
+            f"可导入 {len(eligible)} 篇；其余文件保留在预检表中，不会写入专题库。"
+        )
+        if st.button(
+            f"导入 {len(eligible)} 篇通过预检的论文",
+            type="primary",
             icon=":material/library_add:",
-            disabled=not zotero_status.configured or not pdf_available,
-            help="仅在 Zotero 已配置且本地 PDF 可读取时启用。",
+            disabled=not eligible,
+            key=f"researchmind_pdf_batch_import_{domain.domain_id}",
         ):
             try:
-                with st.spinner("正在上传论文元数据与 PDF 到 Zotero..."):
-                    parent_key, attachment_key = zotero.add_paper_with_pdf(
-                        selected_paper
-                    )
-            except ZoteroError as exc:
-                st.error(f"Zotero 同步失败：{exc}")
-            else:
-                st.success(
-                    "已上传到 Zotero。"
-                    f"父条目 key：{parent_key}；PDF 附件 key：{attachment_key}"
+                backup = create_library_backup(
+                    workflow,
+                    reason="批量导入前自动备份",
                 )
-        if not zotero_status.configured:
-            st.caption(
-                "Zotero 尚未配置。请在 .env 中填写 ZOTERO_API_KEY 和 "
-                "ZOTERO_LIBRARY_ID；本地论文库不受影响。"
+                result = ingest_pdf_files(
+                    [
+                        IncomingPDF(
+                            file_name=item["file_name"],
+                            data=item["data"],
+                        )
+                        for item in eligible
+                    ],
+                    workflow.knowledge_base_dir,
+                )
+                sync_result = workflow.sync_bundled_library(
+                    domain=domain,
+                    force=True,
+                )
+            except (KnowledgeBaseError, OSError, ValueError) as exc:
+                st.error(f"批量导入未完成：{exc}")
+                return
+
+            warning_text = (
+                f"；向量提示：{result.vector_warning}"
+                if result.vector_warning
+                else ""
             )
-        elif not pdf_available:
-            st.caption("该论文只有元数据，本地 PDF 缺失，因此不能上传附件。")
-    else:
-        st.info("当前筛选条件下没有论文。")
+            st.session_state["researchmind_library_operation_notice"] = (
+                f"已导入 {result.imported_count} 篇论文，"
+                f"专题库当前 {sync_result.total_papers} 篇。"
+                f"导入前备份：{backup.path.name}{warning_text}"
+            )
+            schedule_for_domain(workflow, domain, force=True)
+            st.rerun()
 
-    if papers:
-        _render_library_removal(workflow, domain, papers)
 
-    if st.button(
-        "检查并同步最新论文库",
-        icon=":material/sync:",
-        help="同步 manifest.json 和证据索引中的新增论文。",
+def _preflight_pdf_uploads(
+    workflow: ResearchMindWorkflow,
+    uploaded_files: Iterable[Any],
+    domain: ResearchDomain,
+) -> tuple[dict[str, Any], ...]:
+    """本地预检 PDF 元数据、可提取文本、专题相关度和重复项。"""
+
+    manifest_path = workflow.knowledge_base_dir / "manifest.json"
+    manifest_hashes: set[str] = set()
+    if manifest_path.is_file():
+        try:
+            manifest_data = json.loads(manifest_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            manifest_data = {}
+        for item in manifest_data.get("documents", []):
+            if isinstance(item, dict):
+                value = str(item.get("pdf_sha256", "")).strip().lower()
+                if value:
+                    manifest_hashes.add(value)
+
+    existing_papers = workflow.store.list_papers(domain.domain_id)
+    known_hashes = set(manifest_hashes)
+    known_dois = {
+        paper.doi.strip().lower()
+        for paper in existing_papers
+        if paper.doi.strip() and paper.doi != "待补充"
+    }
+    known_titles = {
+        _normalized_paper_title(paper.title)
+        for paper in existing_papers
+        if paper.title.strip()
+    }
+    results: list[dict[str, Any]] = []
+
+    for uploaded in uploaded_files:
+        file_name = Path(getattr(uploaded, "name", "未命名.pdf")).name
+        data = uploaded.getvalue()
+        item: dict[str, Any] = {
+            "file_name": file_name,
+            "data": data,
+            "title": file_name,
+            "year": "待核对",
+            "doi": "待核对",
+            "sha256": "",
+            "relevance": INSUFFICIENT_EVIDENCE_TEXT,
+            "status": "无法读取",
+            "eligible": False,
+        }
+        results.append(item)
+        if not data:
+            item["status"] = "空文件"
+            continue
+
+        try:
+            metadata = extract_pdf_metadata(data, file_name)
+        except (OSError, ValueError, RuntimeError) as exc:
+            item["status"] = f"元数据无法识别：{exc}"
+            continue
+
+        extraction = extract_pdf_text(
+            data,
+            max_pages=min(metadata.page_count, 5),
+            max_chars=14_000,
+        )
+        relevance = assess_topic_relevance(
+            title=metadata.title,
+            keywords=metadata.keywords,
+            full_text=extraction.text,
+        )
+        normalized_title = _normalized_paper_title(metadata.title)
+        doi = metadata.doi.strip().lower()
+        item.update(
+            {
+                "title": metadata.title,
+                "year": metadata.year,
+                "doi": metadata.doi,
+                "sha256": metadata.pdf_sha256,
+                "relevance": relevance.display_status,
+            }
+        )
+
+        duplicate_reason = ""
+        if metadata.pdf_sha256 in known_hashes:
+            duplicate_reason = "重复：PDF SHA-256 已存在"
+        elif doi and doi != "待补充" and doi in known_dois:
+            duplicate_reason = "重复：DOI 已存在"
+        elif normalized_title and normalized_title in known_titles:
+            duplicate_reason = "重复：标准化标题已存在"
+
+        if duplicate_reason:
+            item["status"] = duplicate_reason
+            continue
+        if not extraction.success or not extraction.pages:
+            item["status"] = "未通过：PDF 没有可索引文本"
+            continue
+        if not relevance.is_core_relevant:
+            item["status"] = f"待人工审核：{relevance.status}，不进入核心库"
+            continue
+
+        item["status"] = "通过预检，可导入"
+        item["eligible"] = True
+        known_hashes.add(metadata.pdf_sha256)
+        if doi and doi != "待补充":
+            known_dois.add(doi)
+        if normalized_title:
+            known_titles.add(normalized_title)
+
+    return tuple(results)
+
+
+def _normalized_paper_title(title: str) -> str:
+    """统一题名中的空白、大小写和常见标点，用于本地重复检测。"""
+
+    return re.sub(r"[\W_]+", "", title).casefold()
+
+
+def _render_library_backup_management(
+    workflow: ResearchMindWorkflow,
+) -> None:
+    """显示专题库备份，并在用户明确确认后恢复完整快照。"""
+
+    backups = list_library_backups(workflow)
+    with st.expander(
+        "专题库备份与恢复",
+        icon=":material/settings_backup_restore:",
+        on_change="ignore",
     ):
-        result = workflow.sync_bundled_library(domain=domain)
-        _show_sync_result(result)
-        if not result.used_cached_sync:
+        st.caption(
+            "删除和批量导入前会自动创建 ZIP 备份。恢复前系统会再次备份当前状态，"
+            "因此误操作仍可回退。"
+        )
+        if not backups:
+            st.info("当前还没有专题库备份。")
+            return
+        st.dataframe(
+            pd.DataFrame(
+                [
+                    {
+                        "备份文件": item.path.name,
+                        "时间": item.created_at,
+                        "原因": item.reason,
+                        "大小": f"{item.size_bytes / 1024 / 1024:.2f} MB",
+                    }
+                    for item in backups
+                ]
+            ),
+            width="stretch",
+            hide_index=True,
+            alt="专题论文库备份清单",
+        )
+        selected_name = st.selectbox(
+            "选择要恢复的备份",
+            options=tuple(item.path.name for item in backups),
+            key=f"researchmind_backup_select_{workflow.store.db_path}",
+        )
+        selected = next(
+            item for item in backups if item.path.name == selected_name
+        )
+        confirmed = st.checkbox(
+            "我确认用该备份覆盖当前专题库状态",
+            key=f"researchmind_backup_confirm_{workflow.store.db_path}",
+        )
+        if st.button(
+            "恢复所选备份",
+            icon=":material/restore:",
+            disabled=not confirmed,
+            key=f"researchmind_backup_restore_{workflow.store.db_path}",
+        ):
+            try:
+                safety_backup = restore_library_backup(
+                    workflow,
+                    selected.path,
+                )
+            except (OSError, ValueError, KnowledgeBaseError) as exc:
+                st.error(f"专题库恢复未完成：{exc}")
+                return
+            st.session_state["researchmind_library_operation_notice"] = (
+                f"已恢复备份 {selected.path.name}；"
+                f"恢复前状态已保存为 {safety_backup.path.name}。"
+            )
+            schedule_for_domain(workflow, domain, force=True)
             st.rerun()
 
 
@@ -563,89 +1433,309 @@ def _render_library_removal(
     domain: ResearchDomain,
     papers: tuple[PaperRecord, ...],
 ) -> None:
-    """提供带双重确认的项目论文库永久删除入口。"""
+    """提供批量软删除、回收站恢复和永久删除入口。"""
 
-    with st.expander("删除论文", icon=":material/delete_forever:"):
-        st.warning(
-            "删除会永久移除本地 PDF、证据索引、研究框架和当前领域的"
-            "相关分析结果，并影响其他使用同一项目论文库的研究领域。"
+    deleted_papers = workflow.store.list_deleted_papers(domain.domain_id)
+    with st.container(border=True):
+        st.subheader("论文管理")
+        st.caption(
+            "移入回收站不会删除 PDF 和证据，可随时恢复；"
+            "永久删除前会自动备份专题库，并把历史报告标记为来源失效。"
         )
-        paper_by_id = {paper.paper_id: paper for paper in papers}
-        selected_ids = tuple(
-            st.multiselect(
-                "选择要删除的论文",
-                options=tuple(paper_by_id),
-                format_func=lambda value: paper_by_id[value].title,
-                key="researchmind_library_delete_scope",
+        if papers:
+            paper_by_id = {paper.paper_id: paper for paper in papers}
+            selected_ids = tuple(
+                st.multiselect(
+                    "选择要移入回收站的论文",
+                    options=tuple(paper_by_id),
+                    format_func=lambda value: paper_by_id[value].title,
+                    key=f"researchmind_library_delete_scope_{domain.domain_id}",
+                )
             )
+            if st.button(
+                (
+                    f"将选中的 {len(selected_ids)} 篇移入回收站"
+                    if selected_ids
+                    else "移入回收站"
+                ),
+                icon=":material/delete:",
+                disabled=not selected_ids,
+                key=f"researchmind_library_delete_button_{domain.domain_id}",
+            ):
+                st.session_state["researchmind_delete_confirm_ids"] = (
+                    selected_ids
+                )
+                st.session_state["researchmind_delete_confirm_mode"] = "soft"
+                st.rerun()
+        else:
+            st.caption("当前筛选条件下没有可删除的论文。")
+
+        recycle_bin = st.expander(
+            f"回收站（{len(deleted_papers)} 篇）",
+            icon=":material/recycling:",
+            on_change="rerun",
         )
-        confirmed = st.checkbox(
-            "我确认永久删除所选论文及其本地文件",
-            key="researchmind_library_delete_confirm",
-        )
-        if st.button(
-            "永久删除所选论文",
-            icon=":material/delete_forever:",
-            disabled=not selected_ids or not confirmed,
-            key="researchmind_library_delete_button",
-        ):
-            _delete_library_papers(workflow, domain, selected_ids)
+        if not recycle_bin.open:
+            return
+        with recycle_bin:
+            if not deleted_papers:
+                st.info("回收站为空。")
+                return
+            deleted_by_id = {
+                paper.paper_id: paper for paper in deleted_papers
+            }
+            st.dataframe(
+                pd.DataFrame(
+                    [
+                        {
+                            "题名": paper.title,
+                            "作者": paper.authors_text,
+                            "年份": paper.year,
+                            "DOI": paper.doi,
+                            "删除时间": _display_timestamp(
+                                paper.deleted_at
+                            ),
+                            "PDF": (
+                                "保留"
+                                if Path(paper.pdf_path).is_file()
+                                else "无本地文件"
+                            ),
+                        }
+                        for paper in deleted_papers
+                    ]
+                ),
+                width="stretch",
+                hide_index=True,
+                alt="回收站中的论文清单",
+            )
+            recycle_ids = tuple(
+                st.multiselect(
+                    "选择回收站论文",
+                    options=tuple(deleted_by_id),
+                    format_func=lambda value: deleted_by_id[value].title,
+                    key=f"researchmind_recycle_scope_{domain.domain_id}",
+                )
+            )
+            restore_column, delete_column, _ = st.columns([1, 1, 2])
+            if restore_column.button(
+                f"恢复 {len(recycle_ids)} 篇" if recycle_ids else "恢复论文",
+                icon=":material/restore:",
+                disabled=not recycle_ids,
+                key=f"researchmind_restore_button_{domain.domain_id}",
+            ):
+                try:
+                    restored = restore_papers(
+                        workflow.store,
+                        domain.domain_id,
+                        recycle_ids,
+                    )
+                except (OSError, ValueError, RuntimeError) as exc:
+                    st.error(f"论文恢复失败：{exc}")
+                else:
+                    st.session_state["researchmind_paper_delete_notice"] = (
+                        f"已从回收站恢复 {len(restored)} 篇论文。"
+                    )
+                    schedule_for_domain(workflow, domain, force=True)
+                    st.rerun()
+            if delete_column.button(
+                (
+                    f"永久删除 {len(recycle_ids)} 篇"
+                    if recycle_ids
+                    else "永久删除"
+                ),
+                icon=":material/delete_forever:",
+                disabled=not recycle_ids,
+                key=f"researchmind_permanent_delete_button_{domain.domain_id}",
+            ):
+                st.session_state["researchmind_delete_confirm_ids"] = (
+                    recycle_ids
+                )
+                st.session_state["researchmind_delete_confirm_mode"] = (
+                    "permanent"
+                )
+                st.rerun()
+
+    pending_ids = tuple(
+        st.session_state.get("researchmind_delete_confirm_ids", ())
+    )
+    pending_mode = st.session_state.get(
+        "researchmind_delete_confirm_mode",
+        "",
+    )
+    if pending_ids and pending_mode == "soft":
+        _confirm_soft_delete(workflow, domain, pending_ids)
+    elif pending_ids and pending_mode == "permanent":
+        _confirm_permanent_delete(workflow, domain, pending_ids)
 
 
-def _delete_library_papers(
+def _clear_invalidated_library_state(domain_id: str | None = None) -> None:
+    """清理删除或恢复后可能引用旧证据的页面会话结果。"""
+
+    clear_analysis_session_state(domain_id)
+    st.session_state.pop("researchmind_active_questions", None)
+    st.session_state.pop("researchmind_learning_result", None)
+
+
+@st.dialog(
+    "确认移入回收站",
+    width="small",
+    icon=":material/delete:",
+)
+def _confirm_soft_delete(
     workflow: ResearchMindWorkflow,
     domain: ResearchDomain,
     paper_ids: tuple[str, ...],
 ) -> None:
-    """删除论文资产、重建派生索引，并清理当前领域的失效结果。"""
+    """确认后软删除论文，保留 PDF、证据和恢复能力。"""
 
-    selected_papers = tuple(
+    papers = tuple(
         paper
         for paper_id in paper_ids
-        if (paper := workflow.store.get_paper(paper_id)) is not None
+        if (
+            paper := workflow.store.get_paper(
+                paper_id,
+                include_deleted=True,
+            )
+        )
+        is not None
     )
-    if not selected_papers:
+    if not papers:
+        st.session_state.pop("researchmind_delete_confirm_ids", None)
+        st.session_state.pop("researchmind_delete_confirm_mode", None)
         st.error("未找到要删除的论文，请刷新页面后重试。")
         return
-
-    try:
-        with st.spinner("正在删除 PDF、重建证据索引和研究框架..."):
-            removal = remove_library_documents(
-                [Path(paper.pdf_path).name for paper in selected_papers],
-                workflow.knowledge_base_dir,
-            )
-            workflow.store.invalidate_domain_derivations(
-                domain.domain_id,
-                paper_ids,
-            )
-            sync_result = workflow.sync_bundled_library(
-                domain=domain,
-                force=True,
-            )
-    except (KnowledgeBaseError, OSError, ResearchMindWorkflowError) as exc:
-        st.error(f"论文删除未完成：{exc}")
-        return
-
-    removed_titles = "、".join(paper.title for paper in selected_papers)
-    st.session_state["researchmind_paper_delete_notice"] = (
-        f"已删除 {len(selected_papers)} 篇论文：{removed_titles}。"
-        f"当前领域剩余 {sync_result.total_papers} 篇论文。"
+    st.write(
+        "确定删除选中的论文吗？删除后将从当前论文库隐藏，"
+        "但会保留在回收站，可恢复。"
     )
-    if removal.vector_warning:
-        st.warning(removal.vector_warning)
-    for key in tuple(st.session_state):
+    st.dataframe(
+        pd.DataFrame(
+            [
+                {
+                    "题名": paper.title,
+                    "年份": paper.year,
+                    "DOI": paper.doi,
+                }
+                for paper in papers
+            ]
+        ),
+        width="stretch",
+        hide_index=True,
+        alt="待移入回收站的论文",
+    )
+    confirm_column, cancel_column = st.columns(2)
+    if confirm_column.button(
+        f"确认移入回收站（{len(papers)} 篇）",
+        type="primary",
+        icon=":material/delete:",
+        width="stretch",
+    ):
+        try:
+            result = soft_delete_papers(
+                workflow.store,
+                domain.domain_id,
+                (paper.paper_id for paper in papers),
+            )
+        except (OSError, ValueError, RuntimeError) as exc:
+            st.error(f"移入回收站失败：{exc}")
+            return
+        st.session_state.pop("researchmind_delete_confirm_ids", None)
+        st.session_state.pop("researchmind_delete_confirm_mode", None)
+        st.session_state["researchmind_paper_delete_notice"] = (
+            f"已将 {len(result.paper_ids)} 篇论文移入回收站；"
+            f"失效分析 {sum(result.invalidated.values())} 项。"
+        )
+        _clear_invalidated_library_state(domain.domain_id)
+        schedule_for_domain(workflow, domain, force=True)
+        st.rerun()
+    if cancel_column.button(
+        "取消",
+        icon=":material/close:",
+        width="stretch",
+    ):
+        st.session_state.pop("researchmind_delete_confirm_ids", None)
+        st.session_state.pop("researchmind_delete_confirm_mode", None)
+        st.rerun()
+
+
+@st.dialog(
+    "确认永久删除",
+    width="small",
+    icon=":material/delete_forever:",
+)
+def _confirm_permanent_delete(
+    workflow: ResearchMindWorkflow,
+    domain: ResearchDomain,
+    paper_ids: tuple[str, ...],
+) -> None:
+    """二次确认后永久删除论文记录和独占 PDF。"""
+
+    papers = tuple(
+        paper
+        for paper_id in paper_ids
         if (
-            key.startswith("researchmind_analysis_")
-            or key.startswith("researchmind_debate_")
-            or key.startswith("researchmind_synthesis_")
-            or key
-            in {
-                "researchmind_active_questions",
-                "researchmind_learning_result",
-            }
-        ):
-            st.session_state.pop(key, None)
-    st.rerun()
+            paper := workflow.store.get_paper(
+                paper_id,
+                include_deleted=True,
+            )
+        )
+        is not None
+        and paper.is_deleted
+    )
+    if not papers:
+        st.session_state.pop("researchmind_delete_confirm_ids", None)
+        st.session_state.pop("researchmind_delete_confirm_mode", None)
+        st.error("所选论文不在回收站中，请刷新页面后重试。")
+        return
+    st.warning(
+        "永久删除后无法从回收站恢复。系统会先自动备份专题库，"
+        "历史报告的来源会标记为已删除。",
+        icon=":material/warning:",
+    )
+    confirmed = st.checkbox(
+        f"我确认永久删除选中的 {len(papers)} 篇论文",
+        key="researchmind_permanent_delete_confirm",
+    )
+    confirm_column, cancel_column = st.columns(2)
+    if confirm_column.button(
+        "确认永久删除",
+        type="primary",
+        icon=":material/delete_forever:",
+        disabled=not confirmed,
+        width="stretch",
+    ):
+        try:
+            result = permanently_delete_papers(
+                workflow,
+                domain,
+                (paper.paper_id for paper in papers),
+            )
+        except (
+            KnowledgeBaseError,
+            OSError,
+            RuntimeError,
+            ValueError,
+        ) as exc:
+            st.error(f"永久删除失败：{exc}")
+            return
+        st.session_state.pop("researchmind_delete_confirm_ids", None)
+        st.session_state.pop("researchmind_delete_confirm_mode", None)
+        st.session_state["researchmind_paper_delete_notice"] = (
+            f"已永久删除 {len(result.paper_ids)} 篇论文；"
+            f"自动备份：{result.backup.path.name}。"
+        )
+        _clear_invalidated_library_state(domain.domain_id)
+        schedule_for_domain(workflow, domain, force=True)
+        st.rerun()
+    if cancel_column.button(
+        "取消",
+        icon=":material/close:",
+        width="stretch",
+        key="researchmind_permanent_delete_cancel",
+    ):
+        st.session_state.pop("researchmind_delete_confirm_ids", None)
+        st.session_state.pop("researchmind_delete_confirm_mode", None)
+        st.rerun()
 
 
 def _render_paper_reading(
@@ -677,10 +1767,31 @@ def _render_paper_reading(
     )
     paper = next(paper for paper in papers if paper.paper_id == selected_id)
     _render_paper_metadata(paper)
+    evidence_by_paper = {
+        item.paper_id: bool(
+            workflow.store.list_evidence(item.paper_id, limit=1)
+        )
+        for item in papers
+    }
+    has_full_text = evidence_by_paper[selected_id]
+    readable_paper_count = sum(evidence_by_paper.values())
 
     analysis = workflow.store.get_analysis(selected_id)
+    if not has_full_text:
+        st.warning(
+            "当前论文仅有公开元数据，需导入合法获取的 PDF 后才能进行全文阅读"
+            "和证据提取。摘要不会被当作论文全文。",
+            icon=":material/picture_as_pdf:",
+        )
     if analysis is not None:
-        st.success("已读取该论文的结构化结果。")
+        if has_full_text:
+            st.success("已读取该论文的结构化结果。")
+        else:
+            st.info(
+                "数据库中存在历史阅读记录，但当前论文没有可检索正文；"
+                "该记录不是全文分析结果。",
+                icon=":material/history:",
+            )
         _render_analysis(analysis)
     else:
         st.info("该论文尚未执行结构化阅读。")
@@ -690,19 +1801,38 @@ def _render_paper_reading(
             "解析当前论文",
             type="primary",
             icon=":material/document_scanner:",
+            disabled=not has_full_text,
+            help=(
+                "从已建正文证据中定位六个研究字段。"
+                if has_full_text
+                else "需先导入并解析合法获取的 PDF。"
+            ),
         ):
             with st.spinner("正在从已建证据索引中定位六个研究字段..."):
                 analysis = workflow.reader.read_paper(selected_id)
             st.session_state[f"researchmind_analysis_{selected_id}"] = analysis
             st.rerun()
         if st.button(
-            "解析当前领域全部论文",
+            f"解析有全文的论文（{readable_paper_count} 篇）",
             icon=":material/playlist_play:",
             help="逐篇运行本地规则阅读，不会调用大模型。",
+            disabled=readable_paper_count == 0,
         ):
-            with st.spinner("正在解析当前领域的全部论文..."):
-                analyses = workflow.reader.read_domain(domain.domain_id)
+            readable_papers = tuple(
+                item for item in papers if evidence_by_paper[item.paper_id]
+            )
+            with st.spinner("正在解析已获取全文的论文..."):
+                analyses = tuple(
+                    workflow.reader.read_paper(item.paper_id)
+                    for item in readable_papers
+                )
+            skipped = len(papers) - len(readable_papers)
             st.success(f"已完成 {len(analyses)} 篇论文的结构化阅读。")
+            if skipped:
+                st.info(
+                    f"另有 {skipped} 篇仅有题录，已跳过全文解析，"
+                    "不会被标记为已解析。"
+                )
             st.rerun()
 
     st.subheader("领域阅读概览")
@@ -712,9 +1842,30 @@ def _render_paper_reading(
         overview.append(
             {
                 "论文": item.title,
-                "状态": item_analysis.status if item_analysis else "尚未阅读",
+                "全文状态": (
+                    "可阅读"
+                    if evidence_by_paper[item.paper_id]
+                    else "仅题录"
+                ),
+                "状态": (
+                    (
+                        "基于摘要分析"
+                        if not evidence_by_paper[item.paper_id]
+                        and any(
+                            evidence.source_type == "摘要"
+                            for evidence in item_analysis.all_evidence
+                        )
+                        else item_analysis.status
+                    )
+                    if item_analysis
+                    else (
+                        "需补充全文"
+                        if not evidence_by_paper[item.paper_id]
+                        else "尚未阅读"
+                    )
+                ),
                 "已定位字段": (
-                    f"{item_analysis.filled_field_count}/6"
+                    f"{item_analysis.filled_field_count}/10"
                     if item_analysis
                     else "-"
                 ),
@@ -751,6 +1902,16 @@ def _render_viewpoint_comparison(
         value=_default_topic(domain),
         key="researchmind_viewpoint_topic",
     )
+    analysis_state = render_analysis_update_status(
+        workflow,
+        domain,
+        topic.strip() or workflow.default_debate_topic,
+        page_key="viewpoint-compare",
+        action_label="重新分析观点与分歧",
+        auto_schedule=(
+            topic.strip() == workflow.default_debate_topic
+        ),
+    )
     if st.button(
         "运行观点对比",
         type="primary",
@@ -759,19 +1920,22 @@ def _render_viewpoint_comparison(
         if not topic.strip():
             st.error("比较主题不能为空。")
         else:
-            with st.spinner("正在定位不同论文的可核验观点..."):
-                debate = workflow.debate_analyzer.analyze(
-                    domain.domain_id,
-                    topic,
-                )
-            st.session_state[f"researchmind_debate_{domain.domain_id}"] = debate
-            st.success("观点对比已完成。")
+            schedule_analysis_refresh(
+                workflow,
+                domain,
+                topic,
+                force=True,
+            )
+            clear_analysis_session_state(domain.domain_id)
+            st.rerun()
 
-    debate = st.session_state.get(
-        f"researchmind_debate_{domain.domain_id}"
-    )
-    if debate is None:
-        debate = workflow.store.latest_debate(domain.domain_id)
+    debate = workflow.store.latest_debate(domain.domain_id)
+    if not analysis_state.is_current:
+        st.info(
+            "论文库版本已变化，旧观点结果已停止展示；后台分析完成后本页会自动更新。",
+            icon=":material/hourglass_top:",
+        )
+        return
     if debate is None:
         st.info("尚未生成观点对比。点击上方按钮后开始分析。")
         return
@@ -792,6 +1956,16 @@ def _render_debate_analysis(
         value=_default_topic(domain),
         key="researchmind_debate_topic",
     )
+    analysis_state = render_analysis_update_status(
+        workflow,
+        domain,
+        topic.strip() or workflow.default_debate_topic,
+        page_key="debate-analysis",
+        action_label="重新分析学术分歧",
+        auto_schedule=(
+            topic.strip() == workflow.default_debate_topic
+        ),
+    )
     if st.button(
         "重新分析学术分歧",
         type="primary",
@@ -800,30 +1974,40 @@ def _render_debate_analysis(
         if not topic.strip():
             st.error("分析主题不能为空。")
         else:
-            with st.spinner("正在比较论据、方法和证据强度..."):
-                debate = workflow.debate_analyzer.analyze(
-                    domain.domain_id,
-                    topic,
-                )
-            st.session_state[f"researchmind_debate_{domain.domain_id}"] = debate
+            schedule_analysis_refresh(
+                workflow,
+                domain,
+                topic,
+                force=True,
+            )
+            clear_analysis_session_state(domain.domain_id)
             st.rerun()
 
-    debate = st.session_state.get(
-        f"researchmind_debate_{domain.domain_id}"
-    )
-    if debate is None:
-        debate = workflow.store.latest_debate(domain.domain_id)
+    debate = workflow.store.latest_debate(domain.domain_id)
+    if not analysis_state.is_current:
+        st.info(
+            "当前论文库版本的分析正在后台生成；旧版本结论已冻结，不再展示。",
+            icon=":material/hourglass_top:",
+        )
+        return
     if debate is None:
         st.info("当前领域还没有分歧分析结果。")
         return
 
-    columns = st.columns(4)
+    columns = st.columns(5)
     columns[0].metric("争议主题", debate.topic)
     columns[1].metric("可追溯观点", f"{len(debate.viewpoints)} 个")
     columns[2].metric("证据强度", debate.evidence_strength)
     columns[3].metric(
         "涉及论文",
         f"{len({paper_id for view in debate.viewpoints for paper_id in view.supporting_papers})} 篇",
+    )
+    columns[4].metric(
+        "分析论文",
+        f"{len(debate.considered_paper_ids)} 篇",
+    )
+    st.caption(
+        f"{debate.analysis_mode} · {debate.coverage_note or '覆盖范围未记录'}"
     )
     with st.container(border=True):
         st.markdown("**共识边界**")
@@ -862,93 +2046,9 @@ def _render_knowledge_graph(
     workflow: ResearchMindWorkflow,
     domain: ResearchDomain,
 ) -> None:
-    _page_heading(
-        "KNOWLEDGE GRAPH",
-        "知识图谱",
-        "把概念、论文、研究维度与争议关系组织成可追溯的领域知识体系。",
-    )
-    synthesis = workflow.store.get_latest_synthesis(domain.domain_id)
-    if st.button(
-        "更新知识体系与图谱",
-        type="primary",
-        icon=":material/hub:",
-        help="依次执行结构化阅读、观点分析和知识体系归纳。",
-    ):
-        with st.spinner("正在构建领域知识体系，这可能需要十几秒..."):
-            workflow.reader.read_domain(domain.domain_id)
-            debate = workflow.store.latest_debate(domain.domain_id)
-            if debate is None:
-                debate = workflow.debate_analyzer.analyze(
-                    domain.domain_id,
-                    _default_topic(domain),
-                )
-            synthesis = workflow.synthesizer.synthesize(
-                domain.domain_id,
-                debate=debate,
-            )
-        st.session_state[f"researchmind_synthesis_{domain.domain_id}"] = synthesis
-        st.success("知识体系与图谱已更新。")
+    """兼容旧调用点；统一转发到版本感知的知识图谱页面。"""
 
-    synthesis = st.session_state.get(
-        f"researchmind_synthesis_{domain.domain_id}"
-    ) or synthesis
-    if synthesis is None:
-        st.info("当前领域还没有知识体系。点击上方按钮开始构建。")
-        return
-
-    metrics = st.columns(4)
-    metrics[0].metric("知识节点", f"{len(synthesis.nodes)} 个")
-    metrics[1].metric("关系边", f"{len(synthesis.edges)} 条")
-    metrics[2].metric("来源论文", f"{len(synthesis.source_paper_ids)} 篇")
-    metrics[3].metric("生成方式", synthesis.mode)
-    st.caption(f"生成时间：{_short_time(synthesis.generated_at)}")
-
-    _render_graphviz_or_table(synthesis)
-
-    tabs = st.tabs(
-        (
-            "概念与框架",
-            "共识与分歧",
-            "局限与空白",
-            "创新方向",
-        )
-    )
-    with tabs[0]:
-        st.markdown("**核心概念**")
-        _render_bullet_list(synthesis.concepts)
-        st.markdown("**理论框架链**")
-        if synthesis.theory_framework:
-            st.markdown(
-                " → ".join(
-                    f"**{item}**" for item in synthesis.theory_framework
-                )
-            )
-        else:
-            st.info("当前证据不足以构建完整理论框架链。")
-    with tabs[1]:
-        st.markdown("**学术共识边界**")
-        _render_bullet_list(synthesis.consensus)
-        st.markdown("**学术分歧**")
-        _render_bullet_list(synthesis.disagreements)
-    with tabs[2]:
-        st.markdown("**研究局限**")
-        _render_bullet_list(synthesis.limitations)
-        st.markdown("**研究空白**")
-        _render_bullet_list(synthesis.research_gaps)
-    with tabs[3]:
-        _render_bullet_list(synthesis.innovation_directions)
-
-    st.download_button(
-        "下载知识体系 JSON",
-        data=json.dumps(
-            synthesis.to_dict(),
-            ensure_ascii=False,
-            indent=2,
-        ).encode("utf-8"),
-        file_name="research_knowledge_synthesis.json",
-        mime="application/json",
-        icon=":material/download:",
-    )
+    render_knowledge_map_page(workflow, domain)
 
 
 def _render_learning_assessment(
@@ -964,24 +2064,33 @@ def _render_learning_assessment(
         st.info("当前领域没有论文，无法生成有来源的试题。")
         return
 
+    existing_questions = workflow.store.list_questions(
+        domain.domain_id,
+        limit=100,
+    )
+    attempts = workflow.store.list_attempts(domain.domain_id, limit=100)
+    mastery = workflow.store.ensure_mastery(domain.domain_id)
+    overview = st.columns(4)
+    overview[0].metric(
+        "活动论文",
+        f"{workflow.store.paper_count(domain.domain_id)} 篇",
+    )
+    overview[1].metric("已有试题", f"{len(existing_questions)} 道")
+    overview[2].metric("累计答题", f"{len(attempts)} 条")
+    overview[3].metric(
+        "平均掌握度",
+        f"{sum(item.score for item in mastery) / len(mastery):.1f}%",
+    )
+
     with st.form("researchmind_generate_questions_form"):
         st.subheader("自动组卷")
-        question_types = st.multiselect(
-            "题型",
-            options=(
-                "单项选择题",
-                "多项选择题",
-                "判断题",
-                "简答题",
-                "论述题",
-                "文献对比分析题",
-            ),
-            default=(
-                "单项选择题",
-                "多项选择题",
-                "判断题",
-                "简答题",
-                "文献对比分析题",
+        assessment_modules = st.multiselect(
+            "测评模块",
+            options=ASSESSMENT_MODULES,
+            default=ASSESSMENT_MODULES,
+            help=(
+                "基础知识理解会自动生成单选、多选、判断和简答题；"
+                "其余模块分别生成深度理解、文献对比、学术思辨和个性化补学题。"
             ),
         )
         topic = st.text_input(
@@ -994,34 +2103,190 @@ def _render_learning_assessment(
             icon=":material/quiz:",
         )
     if generate:
-        if not question_types:
-            st.error("请至少选择一种题型。")
+        if not assessment_modules:
+            st.error("请至少选择一个测评模块。")
         else:
-            with st.spinner("正在根据题库论文与原文证据生成试题..."):
-                questions = workflow.assessment.generate_question_set(
+            try:
+                with st.spinner("正在根据题库论文与原文证据生成试题..."):
+                    questions = workflow.assessment.generate_question_set(
+                        domain.domain_id,
+                        assessment_modules=assessment_modules,
+                        debate_topic=topic,
+                    )
+            except AssessmentGenerationError as error:
+                LOGGER.warning(
+                    "Assessment generation failed code=%s domain=%s: %s",
+                    error.code,
                     domain.domain_id,
-                    question_types=question_types,
-                    debate_topic=topic,
+                    error,
                 )
-            st.session_state["researchmind_active_questions"] = tuple(
-                question.question_id for question in questions
-            )
-            st.session_state["researchmind_assessment_topic"] = topic
-            st.session_state.pop("researchmind_learning_result", None)
-            st.success(f"已生成 {len(questions)} 道有来源的试题。")
+                st.error(
+                    error.user_message,
+                    title=f"试卷生成失败 · {error.code}",
+                    icon=":material/error:",
+                )
+                st.info(
+                    error.suggestion,
+                    title="建议操作",
+                    icon=":material/build:",
+                )
+            except (ResearchMindStorageError, OSError) as error:
+                LOGGER.exception(
+                    "Assessment storage access failed for domain %s",
+                    domain.domain_id,
+                )
+                st.error(
+                    f"论文数据库或本地文件读取失败：{error}",
+                    title="数据连接失败",
+                    icon=":material/database_off:",
+                )
+                st.info(
+                    "请检查数据库文件是否存在、磁盘空间和读写权限后重试。",
+                    icon=":material/build:",
+                )
+            else:
+                st.session_state["researchmind_active_questions"] = tuple(
+                    question.question_id for question in questions
+                )
+                st.session_state["researchmind_assessment_topic"] = topic
+                st.session_state.pop("researchmind_learning_result", None)
+                st.success(f"已生成 {len(questions)} 道有来源的试题。")
+                missing_types = getattr(
+                    workflow.assessment,
+                    "last_missing_question_types",
+                    (),
+                )
+                if missing_types:
+                    st.warning(
+                        "以下题型因证据或结构字段不足未生成："
+                        + "、".join(missing_types)
+                        + "。已生成的其他题型仍保留真实来源。",
+                        title="试卷数量不足",
+                        icon=":material/quiz:",
+                    )
+                missing_modules = getattr(
+                    workflow.assessment,
+                    "last_missing_assessment_modules",
+                    (),
+                )
+                if missing_modules:
+                    st.warning(
+                        "以下测评模块因证据或结构字段不足未生成："
+                        + "、".join(missing_modules)
+                        + "。",
+                        title="模块生成不完整",
+                        icon=":material/extension_off:",
+                    )
+                if missing_modules:
+                    st.info(
+                        f"请求 {len(assessment_modules)} 个测评模块，"
+                        f"实际生成 {len(questions)} 道题。"
+                        "系统不会为补足数量而生成无原文依据的题目。",
+                        icon=":material/fact_check:",
+                    )
+                field_gaps = getattr(
+                    workflow.assessment,
+                    "last_field_gap_counts",
+                    {},
+                )
+                optional_gaps = tuple(
+                    f"{FIELD_LABELS[field]}缺少 {count} 篇"
+                    for field, count in field_gaps.items()
+                    if field in {
+                        "interventions",
+                        "comparators",
+                        "measures",
+                        "statistics",
+                    }
+                    and count
+                )
+                if optional_gaps:
+                    st.caption(
+                        "非必需字段覆盖提示："
+                        + "；".join(optional_gaps)
+                        + "。缺失字段只会影响依赖该字段的题目，不会使整份试卷失效。"
+                    )
+                critical_gaps = tuple(
+                    f"{FIELD_LABELS[field]}缺少 {count} 篇"
+                    for field, count in field_gaps.items()
+                    if field in {"methods", "results", "conclusions"}
+                    and count
+                )
+                if critical_gaps:
+                    st.warning(
+                        "部分论文缺少组卷关键字段："
+                        + "；".join(critical_gaps)
+                        + "。系统已仅使用具备原文证据的论文和字段。",
+                        title="论文结构字段不完整",
+                        icon=":material/data_alert:",
+                    )
+                unparsed_titles = getattr(
+                    workflow.assessment,
+                    "last_unparsed_titles",
+                    (),
+                )
+                parse_errors = getattr(
+                    workflow.assessment,
+                    "last_parse_errors",
+                    (),
+                )
+                if unparsed_titles:
+                    st.warning(
+                        f"{len(unparsed_titles)} 篇论文没有可用于出题的解析证据，"
+                        "已跳过："
+                        + "、".join(unparsed_titles[:5])
+                        + ("…" if len(unparsed_titles) > 5 else ""),
+                        title="部分论文未参与组卷",
+                        icon=":material/document_scanner:",
+                    )
+                if parse_errors:
+                    st.error(
+                        "部分论文解析失败，已跳过且未用模拟内容替代："
+                        + "；".join(parse_errors[:3]),
+                        title="论文解析异常",
+                        icon=":material/error:",
+                    )
 
     questions = _active_questions(workflow, domain)
     if not questions:
-        st.info("尚未生成试卷。可选择题型后点击“生成新试卷”。")
+        st.info("尚未生成试卷。可选择测评模块后点击“生成新试卷”。")
         return
 
-    attempts = workflow.store.list_attempts(domain.domain_id, limit=100)
+    module_questions: dict[str, list[AssessmentQuestion]] = {
+        module: [] for module in ASSESSMENT_MODULES
+    }
+    for question in questions:
+        module_questions.setdefault(question.assessment_module, []).append(question)
+    available_modules = tuple(
+        module for module in ASSESSMENT_MODULES if module_questions.get(module)
+    )
+    selected_module = st.segmented_control(
+        "当前测评模块",
+        options=available_modules,
+        default=available_modules[0],
+        key=f"researchmind-assessment-module-{domain.domain_id}",
+    )
+    if selected_module is None:
+        return
+    questions = tuple(module_questions[selected_module])
+    module_descriptions = {
+        "基础知识理解": "研究背景、目的、对象、方法、变量、结论和局限。",
+        "文献深度理解": "研究设计合理性、样本代表性、结果支持范围与证据边界。",
+        "文献对比分析": "比较对象、方法、样本、干预、测量、结果和结论一致性。",
+        "学术思辨训练": "分析结论差异、证据强弱、偏倚、混杂与研究改进。",
+        "个性化错题与补学": "根据错题标签和已测练习表现生成针对性训练。",
+    }
+    st.caption(module_descriptions.get(selected_module, ""))
+
     answers: dict[str, str] = {}
-    with st.form("researchmind_answer_sheet"):
+    with st.form(f"researchmind_answer_sheet::{selected_module}"):
         st.subheader("答题")
         for number, question in enumerate(questions, start=1):
             with st.container(border=True):
-                st.markdown(f"**第 {number} 题 · {question.question_type}**")
+                st.markdown(
+                    f"**第 {number} 题 · {question.assessment_module} · "
+                    f"{question.question_type}**"
+                )
                 st.write(question.prompt)
                 st.caption(
                     f"难度：{question.difficulty}　|　"
@@ -1048,8 +2313,16 @@ def _render_learning_assessment(
                     _default_topic(domain),
                 ),
                 generate_next=True,
+                assessment_modules=(
+                    selected_module,
+                    "个性化错题与补学",
+                ),
             )
         st.session_state["researchmind_learning_result"] = result
+        if result.next_questions:
+            st.session_state["researchmind_active_questions"] = tuple(
+                question.question_id for question in result.next_questions
+            )
 
     result = st.session_state.get("researchmind_learning_result")
     if isinstance(result, LearningCycleResult):
@@ -1133,7 +2406,7 @@ def _render_wrong_answers(
             if question is None:
                 st.warning("原始题目记录缺失，无法展示标准答案和来源。")
                 continue
-            _render_question_sources(question)
+            _render_question_sources(question, workflow)
 
     recommendation = workflow.tutor.recommend(domain.domain_id)
     st.subheader("错题复习建议")
@@ -1148,11 +2421,12 @@ def _render_learning_report(
     _page_heading(
         "LEARNING REPORT",
         "学习成长报告",
-        "展示五个能力维度的掌握度、答题趋势和下一轮个性化学习安排。",
+        "展示已记录题目的练习表现、答题趋势和下一轮学习安排；未作答维度显示“未测”。",
     )
     mastery = workflow.store.ensure_mastery(domain.domain_id)
     attempts = workflow.store.list_attempts(domain.domain_id)
     wrong_attempts = workflow.store.list_wrong_attempts(domain.domain_id)
+    measured = tuple(item for item in mastery if item.attempts_count > 0)
     total_score = sum(item.score for item in attempts)
     total_max = sum(item.max_score for item in attempts)
     overall = 100 * total_score / total_max if total_max else 0.0
@@ -1161,32 +2435,49 @@ def _render_learning_report(
     metrics[1].metric("总体得分率", f"{overall:.1f}%")
     metrics[2].metric("错题记录", f"{len(wrong_attempts)} 条")
     metrics[3].metric(
-        "平均掌握度",
-        f"{sum(item.score for item in mastery) / len(mastery):.1f}%",
+        "已测维度平均练习表现",
+        (
+            f"{sum(item.score for item in measured) / len(measured):.1f}%"
+            if measured
+            else "未测"
+        ),
     )
 
     mastery_frame = pd.DataFrame(
         {
             "能力维度": [item.dimension for item in mastery],
-            "掌握度": [item.score for item in mastery],
+            "练习表现": [
+                item.score if item.attempts_count > 0 else None
+                for item in mastery
+            ],
             "作答次数": [item.attempts_count for item in mastery],
+            "状态": [
+                "已测" if item.attempts_count > 0 else "未测"
+                for item in mastery
+            ],
         }
     ).set_index("能力维度")
-    st.subheader("五项能力掌握度")
-    st.bar_chart(
-        mastery_frame[["掌握度"]],
-        height=300,
-        alt="ResearchMind 五项科研能力掌握度柱状图",
-    )
+    st.subheader("五项科研练习表现（未校准）")
+    if measured:
+        st.bar_chart(
+            mastery_frame.loc[
+                mastery_frame["状态"] == "已测",
+                ["练习表现"],
+            ],
+            height=300,
+            alt="ResearchMind 已测科研练习表现柱状图",
+        )
+    else:
+        st.info("尚无答题记录，五个维度均为“未测”，不生成 0 分能力画像。")
     st.dataframe(
         mastery_frame.reset_index(),
         width="stretch",
         hide_index=True,
-        alt="ResearchMind 能力掌握度明细",
+        alt="ResearchMind 科研练习表现明细",
     )
     st.caption(
-        "初始能力权重为概念记忆 15%、文献理解 20%、对比分析 25%、"
-        "批判性思维 20%、学术应用 20%；后续得分按答题记录动态更新。"
+        "“练习表现”是已记录题目得分率的算术平均值，不是经过量表校准的能力等级；"
+        "没有答题记录的维度不参与薄弱项判断。"
     )
 
     if attempts:
@@ -1254,13 +2545,20 @@ def _render_debate_summary(
     workflow: ResearchMindWorkflow,
     debate: DebateAnalysis,
 ) -> None:
-    metrics = st.columns(4)
+    metrics = st.columns(5)
     metrics[0].metric("主题", debate.topic)
     metrics[1].metric("观点", f"{len(debate.viewpoints)} 个")
     metrics[2].metric("证据强度", debate.evidence_strength)
     metrics[3].metric(
         "证据页码",
         f"{sum(len(item.evidence) for item in debate.viewpoints)} 条",
+    )
+    metrics[4].metric(
+        "纳入论文",
+        f"{len(debate.considered_paper_ids)} 篇",
+    )
+    st.caption(
+        f"{debate.analysis_mode} · {debate.coverage_note or '覆盖范围未记录'}"
     )
     with st.container(border=True):
         st.markdown("**共识边界**")
@@ -1287,6 +2585,10 @@ def _render_viewpoints(
                 viewpoint.supporting_papers,
             )
             st.caption("关联论文：" + "、".join(paper_titles))
+            st.caption(
+                f"主张来源：{viewpoint.claim_origin}；"
+                f"立场判断：{viewpoint.stance_origin}"
+            )
             _render_evidence(viewpoint.evidence)
 
 
@@ -1307,7 +2609,8 @@ def _render_evidence(evidence: Iterable[EvidenceRef]) -> None:
         with st.container(border=True):
             st.markdown(f"**{item.document_title}**")
             st.caption(
-                f"{item.file_name}　|　第 {item.page_number} 页　|　"
+                f"{item.file_name}　|　{item.source_type}　|　"
+                f"{item.location_label}　|　"
                 f"证据 ID：{item.chunk_id}"
             )
             st.write(item.quote)
@@ -1465,7 +2768,10 @@ def _render_question_rubric(question: AssessmentQuestion) -> None:
     )
 
 
-def _render_question_sources(question: AssessmentQuestion) -> None:
+def _render_question_sources(
+    question: AssessmentQuestion,
+    workflow: ResearchMindWorkflow | None = None,
+) -> None:
     st.markdown("**标准答案**")
     st.write(
         _format_question_answer(
@@ -1473,7 +2779,46 @@ def _render_question_sources(question: AssessmentQuestion) -> None:
             question.standard_answer,
         )
     )
+    st.markdown("**详细解析**")
+    if question.explanation.strip():
+        st.write(question.explanation)
+    else:
+        st.info(
+            "该题来自历史题库，尚未保存独立解析。可依据下方标准答案、"
+            "评分细则和原文证据核对，不使用题目之外的信息补写。",
+            icon=":material/history_edu:",
+        )
     _render_question_rubric(question)
+    if workflow is not None:
+        source_rows = []
+        for paper_id in question.source_paper_ids:
+            paper = workflow.store.get_paper(paper_id)
+            if paper is None:
+                source_rows.append(
+                    {
+                        "论文": f"已删除或不可用：{paper_id}",
+                        "作者": "",
+                        "年份": "",
+                        "DOI": "",
+                    }
+                )
+                continue
+            source_rows.append(
+                {
+                    "论文": paper.title,
+                    "作者": paper.authors_text,
+                    "年份": paper.year,
+                    "DOI": paper.doi or "未提供",
+                }
+            )
+        if source_rows:
+            st.markdown("**对应论文来源**")
+            st.dataframe(
+                pd.DataFrame(source_rows),
+                width="stretch",
+                hide_index=True,
+                alt="本题对应论文来源",
+            )
     st.markdown("**来源证据**")
     _render_evidence(question.evidence)
 
@@ -1487,7 +2832,10 @@ def _render_learning_cycle_result(
     st.success(result.summary)
     for question, score in result.scores:
         with st.container(border=True):
-            st.markdown(f"**{question.question_type}　{score.score:g}/{score.max_score:g}**")
+            st.markdown(
+                f"**{question.assessment_module} · {question.question_type}　"
+                f"{score.score:g}/{score.max_score:g}**"
+            )
             st.write(question.prompt)
             st.caption(f"批改方式：{score.mode}")
             st.markdown("**你的答案**")
@@ -1526,20 +2874,20 @@ def _render_learning_cycle_result(
                 hide_index=True,
                 alt="本题评分细则得分依据",
             )
-            with st.expander("查看本题原文证据与页码"):
-                _render_evidence(question.evidence)
+            with st.expander("查看详细解析、论文来源与原文证据"):
+                _render_question_sources(question, workflow)
 
     mastery_frame = pd.DataFrame(
         {
-            "能力维度": list(result.mastery),
-            "掌握度": list(result.mastery.values()),
+            "维度": list(result.mastery),
+            "练习表现": list(result.mastery.values()),
         }
-    ).set_index("能力维度")
-    st.subheader("更新后的掌握度")
+    ).set_index("维度")
+    st.subheader("更新后的科研练习表现（未校准）")
     st.bar_chart(
         mastery_frame,
         height=230,
-        alt="本轮答题后的五项能力掌握度",
+        alt="本轮答题后的五项科研练习表现",
     )
     st.subheader("个性化复习与下一轮安排")
     st.write(result.recommendation.summary)
@@ -1631,9 +2979,14 @@ def _download_and_ingest_candidate(
                         data=pdf_bytes,
                     )
                 ],
-                workflow.config.knowledge_base_dir,
+                workflow.knowledge_base_dir,
             )
-    except (LiteratureCollectionError, ValueError, OSError) as exc:
+    except (
+        KnowledgeBaseError,
+        LiteratureCollectionError,
+        ValueError,
+        OSError,
+    ) as exc:
         st.error(f"开放 PDF 未导入：{exc}")
         return
 
@@ -1645,8 +2998,7 @@ def _download_and_ingest_candidate(
             )
         _render_ingest_result(result)
         _show_sync_result(sync_result)
-        st.cache_resource.clear()
-        st.cache_data.clear()
+        schedule_for_domain(workflow, domain, force=True)
     else:
         _render_ingest_result(result)
 
@@ -1770,11 +3122,39 @@ def _active_questions(
     selected = []
     for question_id in ids:
         question = workflow.store.get_question(str(question_id))
-        if question is not None and question.domain_id == domain.domain_id:
+        if (
+            question is not None
+            and question.domain_id == domain.domain_id
+            and _question_sources_active(workflow, question)
+        ):
             selected.append(question)
     if selected:
         return tuple(selected)
-    return workflow.store.list_questions(domain.domain_id, limit=6)
+    active = tuple(
+        question
+        for question in workflow.store.list_questions(
+            domain.domain_id,
+            limit=50,
+        )
+        if _question_sources_active(workflow, question)
+    )
+    return active[:6]
+
+
+def _question_sources_active(
+    workflow: ResearchMindWorkflow,
+    question: AssessmentQuestion,
+) -> bool:
+    """题目及其所有选项证据必须仍关联活动论文。"""
+
+    source_ids = set(question.source_paper_ids)
+    source_ids.update(
+        evidence.document_id for evidence in question.evidence
+    )
+    return bool(source_ids) and all(
+        workflow.store.get_paper(paper_id) is not None
+        for paper_id in source_ids
+    )
 
 
 def _paper_titles(
@@ -1794,15 +3174,16 @@ def _question_types_for_review(recommendation: Any) -> tuple[str, ...]:
     if "概念记忆" in weak:
         types.extend(("单项选择题", "判断题"))
     if "文献理解" in weak:
-        types.extend(("多项选择题", "简答题"))
+        types.extend(("多项选择题", "简答题", "深度理解题"))
     if "对比分析" in weak:
         types.append("文献对比分析题")
     if "批判性思维" in weak:
-        types.extend(("论述题", "文献对比分析题"))
+        types.extend(("论述题", "学术思辨题", "文献对比分析题"))
     if "学术应用" in weak:
         types.extend(("论述题", "简答题"))
     if not types:
-        types.extend(("多项选择题", "文献对比分析题"))
+        types.extend(("多项选择题", "深度理解题", "文献对比分析题"))
+    types.append("个性化补学题")
     return tuple(dict.fromkeys(types))
 
 
@@ -1869,6 +3250,7 @@ def _page_heading(label: str, title: str, description: str) -> None:
 
 
 __all__ = [
+    "RESEARCHMIND_PAGE_ALIASES",
     "RESEARCHMIND_PAGES",
     "get_researchmind_workflow",
     "render_researchmind_page",

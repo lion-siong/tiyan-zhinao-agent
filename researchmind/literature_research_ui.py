@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Sequence
+from typing import Any
 
 import streamlit as st
 
@@ -12,6 +13,10 @@ from agents.literature_research_agent import (
     LiteratureResearchResult,
 )
 from config import settings
+from researchmind.adolescent_library import create_adolescent_workflow
+from researchmind.analysis_status_ui import schedule_for_domain
+from researchmind.literature_import import import_candidates
+from researchmind.literature_retrieval import MultiSourceRetriever
 from services.llm_service import LLMService
 from services.rag_service import EvidenceAnswer
 from services.user_paper_rag import (
@@ -23,10 +28,21 @@ from services.vector_service import VectorStoreError
 
 
 @st.cache_resource
-def get_literature_research_agent() -> LiteratureResearchAgent:
-    """复用 Function Calling Agent 和模型服务。"""
+def get_multi_source_retriever() -> MultiSourceRetriever:
+    """复用统一多源检索编排器（含进程内缓存与限速）。"""
 
-    return LiteratureResearchAgent(settings, LLMService(settings))
+    return MultiSourceRetriever(settings)
+
+
+@st.cache_resource
+def get_literature_research_agent() -> LiteratureResearchAgent:
+    """复用 Function Calling Agent、模型服务与统一多源检索器。"""
+
+    return LiteratureResearchAgent(
+        settings,
+        LLMService(settings),
+        retriever=get_multi_source_retriever(),
+    )
 
 
 @st.cache_resource
@@ -34,6 +50,13 @@ def get_user_paper_rag_service() -> UserPaperRAGService:
     """复用隔离的用户论文 Chroma 服务。"""
 
     return UserPaperRAGService(settings)
+
+
+@st.cache_resource
+def get_public_import_workflow():
+    """复用可写的青少年专题工作流，供公开检索结果导入论文库。"""
+
+    return create_adolescent_workflow(settings)
 
 
 def render_literature_research() -> None:
@@ -65,11 +88,12 @@ def render_literature_research() -> None:
 
 
 def _render_public_search() -> None:
-    """渲染 Semantic Scholar/arXiv 公开元数据检索与综述。"""
+    """渲染五类公开学术来源的元数据检索、失败隔离与综述。"""
 
     st.info(
-        "公开来源仅限 Semantic Scholar 和 arXiv 官方接口：只读取题名、"
-        "作者、年份、摘要、DOI 与开放链接，不爬取知网，也不自动下载全文。"
+        "公开来源按 Semantic Scholar → arXiv → OpenAlex → Crossref → PubMed "
+        "顺序聚合检索：只读取题名、作者、年份、摘要、DOI 与开放链接，"
+        "不爬取知网，也不自动下载全文。"
     )
     if settings.llm_configured:
         st.caption(
@@ -86,7 +110,7 @@ def _render_public_search() -> None:
         research_question = st.text_area(
             "研究问题",
             placeholder=(
-                "例如：大学生体育锻炼行为与体质健康水平之间有什么关系？"
+                "例如：青少年体育锻炼干预与体质健康水平之间有什么关系？"
             ),
             height=96,
             key="public_literature_question",
@@ -125,21 +149,63 @@ def _render_public_search() -> None:
         _render_public_result(result)
 
 
+def _render_source_board(report: dict[str, Any]) -> None:
+    """渲染各数据源的状态、返回数量、耗时与失败建议看板。"""
+
+    sources = report.get("sources") if report else []
+    if not sources:
+        return
+    label = {
+        "success": "成功",
+        "empty": "无结果",
+        "failed": "失败",
+        "disabled": "未启用",
+    }
+    rows = [
+        {
+            "数据源": source.get("source", ""),
+            "状态": label.get(source.get("status"), source.get("status", "")),
+            "返回数": source.get("returned", 0),
+            "耗时(ms)": source.get("elapsed_ms", 0),
+            "尝试次数": source.get("attempts", 0),
+            "失败原因 / 建议": source.get("error") or source.get("suggestion") or "—",
+        }
+        for source in sources
+    ]
+    st.dataframe(rows, use_container_width=True, hide_index=True)
+
+
 def _render_public_result(result: LiteratureResearchResult) -> None:
     """展示可追溯的公开检索结果、综述与 GB/T 7714 引用。"""
 
     st.divider()
-    if not result.success:
-        st.error(result.message or "本轮文献检索未完成。")
+    report = result.report or {}
+    all_failed = bool(report.get("all_failed")) if report else not result.papers
+
+    if not result.success or all_failed:
+        st.error(
+            result.message
+            or "本轮所有公开数据源均未返回可核验论文，未生成综述或虚构引用。"
+        )
+        _render_source_board(report)
         return
 
-    metric_columns = st.columns(3)
-    metric_columns[0].metric("公开来源", result.source or "未返回")
-    metric_columns[1].metric("真实元数据", len(result.papers))
-    metric_columns[2].metric("运行模式", result.mode)
+    metric_columns = st.columns(4)
+    metric_columns[0].metric(
+        "去重后论文", report.get("total_unique", len(result.papers))
+    )
+    metric_columns[1].metric("可核验 DOI", report.get("verified_doi_count", 0))
+    metric_columns[2].metric("含摘要", report.get("abstract_count", 0))
+    metric_columns[3].metric("开放全文", report.get("fulltext_count", 0))
 
     st.caption(f"原始研究问题：{result.original_query}")
     st.caption(f"实际检索式：{result.optimized_query or '未生成'}")
+    expanded = report.get("expanded_queries") or ()
+    if len(expanded) > 1:
+        st.caption(f"同义词扩展：{'、'.join(expanded[1:])}")
+
+    _render_source_board(report)
+
     if result.message:
         st.info(result.message)
     if result.warnings:
@@ -156,6 +222,10 @@ def _render_public_result(result: LiteratureResearchResult) -> None:
     if result.papers:
         st.subheader("论文元数据")
         for index, paper in enumerate(result.papers, start=1):
+            abstract = paper.abstract.strip()
+            content_level = "含摘要" if abstract else "仅题录（无摘要）"
+            access_level = "开放全文" if paper.pdf_url.strip() else "未获取全文"
+            doi_level = "DOI 可核验" if paper.doi.strip() else "DOI 缺失，需人工核验"
             with st.expander(
                 f"[P{index}] {paper.title}",
                 expanded=index == 1,
@@ -166,7 +236,7 @@ def _render_public_result(result: LiteratureResearchResult) -> None:
                     f"**来源：** {paper.venue or '信息缺失'}  \n"
                     f"**DOI：** {paper.doi or '信息缺失'}"
                 )
-                abstract = paper.abstract.strip()
+                st.caption(f"{doi_level} · {content_level} · {access_level}")
                 st.write(
                     abstract
                     if abstract
@@ -192,6 +262,8 @@ def _render_public_result(result: LiteratureResearchResult) -> None:
                             icon=":material/link:",
                         )
 
+        _render_import_panel(result)
+
     references = result.references
     if references:
         st.subheader("GB/T 7714 引用（需人工核验）")
@@ -214,6 +286,65 @@ def _render_public_result(result: LiteratureResearchResult) -> None:
         icon=":material/download:",
         width="stretch",
     )
+
+
+def _render_import_panel(result: LiteratureResearchResult) -> None:
+    """把勾选的候选论文导入专题论文库，并调度增量派生分析。"""
+
+    candidates = tuple(result.candidates or ())
+    if not candidates:
+        return
+
+    st.subheader("导入专题论文库")
+    st.caption(
+        "仅导入你勾选的论文；不符合专题方向的记录会被相关性判断跳过。"
+        "导入后可在论文库自主删除，删除会同步清理分析缓存、索引与图谱关联。"
+    )
+    by_id = {candidate.candidate_id: candidate for candidate in candidates}
+    selected = st.multiselect(
+        "选择要导入的论文",
+        options=list(by_id),
+        format_func=lambda cid: by_id[cid].title,
+        key="public_import_select",
+    )
+    if not st.button(
+        "导入所选到专题论文库",
+        type="primary",
+        icon=":material/library_add:",
+        disabled=not selected,
+    ):
+        return
+
+    workflow = get_public_import_workflow()
+    domain = workflow.ensure_default_domain()
+    chosen = tuple(by_id[cid] for cid in selected)
+    try:
+        with st.spinner("正在写入论文库并校验记录..."):
+            imported = import_candidates(
+                workflow, domain, chosen, download_open_pdf=False
+            )
+    except (ValueError, OSError, RuntimeError) as exc:
+        st.error(f"论文导入失败：{exc}")
+        return
+
+    parts = [
+        f"新导入 {imported.imported} 篇",
+        f"补齐元数据 {imported.updated} 篇",
+        f"重复跳过 {imported.skipped_duplicates} 篇",
+        f"专题不相关 {imported.skipped_ineligible} 篇",
+        f"失败 {imported.failed} 篇",
+    ]
+    st.success("；".join(parts))
+    if imported.messages:
+        with st.expander("导入明细"):
+            for message in imported.messages:
+                st.caption(message)
+    if imported.changed:
+        schedule_for_domain(workflow, domain)
+        st.caption(
+            "已标记专题分析待更新：分歧分析、知识图谱、综述与测评将基于"
+            "新增论文增量重算，不会重新处理全部论文。"
+        )
 
 
 def _render_user_paper_rag() -> None:

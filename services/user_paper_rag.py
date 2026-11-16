@@ -373,7 +373,9 @@ class UserPaperRAGService:
                     "storage": "用户主动上传，本地隔离保存",
                 },
             )
-            temporary_dir.rename(paper_dir)
+            # Windows 上目录 rename 可能触发 WinError 5；shutil.move
+            # 对同一磁盘内的临时目录更稳定，并保持完整目录原子落位语义。
+            shutil.move(str(temporary_dir), str(paper_dir))
         except Exception:
             shutil.rmtree(temporary_dir, ignore_errors=True)
             raise

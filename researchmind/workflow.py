@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import hashlib
+import unicodedata
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -31,6 +32,12 @@ from researchmind.models import (
     ResearchSynthesis,
     ScoreResult,
     StudyRecommendation,
+)
+from researchmind.library_state import (
+    library_fingerprint,
+    mark_analysis_completed,
+    mark_analysis_failed,
+    mark_analysis_running,
 )
 from researchmind.storage import ResearchMindStore
 from services.llm_service import LLMService
@@ -104,13 +111,41 @@ class ResearchMindWorkflow:
         config: Settings | None = None,
         knowledge_base_dir: Path | str | None = None,
         llm_service: LLMService | None = None,
+        domain_name: str | None = None,
+        domain_description: str | None = None,
+        domain_keywords: Iterable[str] | None = None,
+        auto_sync_bundled: bool = True,
+        read_only: bool = False,
+        default_debate_topic: str | None = None,
     ) -> None:
         self.config = config or default_settings
-        self.store = store or ResearchMindStore()
+        self.read_only = bool(read_only)
+        self.store = store or ResearchMindStore(read_only=self.read_only)
         self.knowledge_base_dir = Path(
             knowledge_base_dir or self.config.knowledge_base_dir
         ).resolve()
         self.llm_service = llm_service or LLMService(self.config)
+        self.domain_name = (domain_name or DEFAULT_DOMAIN_NAME).strip()
+        self.domain_description = (
+            domain_description
+            or (
+                "围绕大学生体育锻炼行为、体质健康、心理社会影响因素与"
+                "运动干预证据建立的可追溯研究领域。"
+            )
+        ).strip()
+        self.domain_keywords = tuple(
+            dict.fromkeys(
+                str(keyword).strip()
+                for keyword in (
+                    domain_keywords or DEFAULT_DOMAIN_KEYWORDS
+                )
+                if str(keyword).strip()
+            )
+        )
+        self.auto_sync_bundled = bool(auto_sync_bundled)
+        self.default_debate_topic = (
+            default_debate_topic or DEFAULT_DEBATE_TOPIC
+        ).strip()
         self.reader = PaperReader(self.store)
         self.debate_analyzer = AcademicDebateAnalyzer(self.store)
         self.synthesizer = KnowledgeSynthesizer(self.store)
@@ -123,16 +158,21 @@ class ResearchMindWorkflow:
     def ensure_default_domain(self) -> ResearchDomain:
         """创建默认领域；已有同名领域时直接复用。"""
 
-        for domain in self.store.list_domains():
-            if domain.name == DEFAULT_DOMAIN_NAME:
+        domains = self.store.list_domains()
+        for domain in domains:
+            if domain.name == self.domain_name:
                 return domain
+        if self.read_only:
+            if len(domains) == 1:
+                return domains[0]
+            raise ResearchMindWorkflowError(
+                "旧论文库中没有可读取的研究领域，只读模式不会自动创建数据。"
+            )
+        self._ensure_writable()
         domain = ResearchDomain.create(
-            name=DEFAULT_DOMAIN_NAME,
-            description=(
-                "围绕大学生体育锻炼行为、体质健康、心理社会影响因素与"
-                "运动干预证据建立的可追溯研究领域。"
-            ),
-            keywords=DEFAULT_DOMAIN_KEYWORDS,
+            name=self.domain_name,
+            description=self.domain_description,
+            keywords=self.domain_keywords,
             created_at=_now(),
         )
         self.store.upsert_domain(domain)
@@ -147,6 +187,7 @@ class ResearchMindWorkflow:
     ) -> ResearchDomain:
         """创建用户自定义研究领域，名称重复时返回已有领域。"""
 
+        self._ensure_writable()
         clean_name = name.strip()
         for domain in self.store.list_domains():
             if domain.name == clean_name:
@@ -173,7 +214,12 @@ class ResearchMindWorkflow:
         或复制证据。
         """
 
+        self._ensure_writable()
         target_domain = domain or self.ensure_default_domain()
+        if target_domain.domain_id not in {
+            item.domain_id for item in self.store.list_domains()
+        }:
+            raise ResearchMindWorkflowError("目标研究领域不存在。")
         try:
             bundle = load_bundled_knowledge_base(self.knowledge_base_dir)
         except Exception as exc:
@@ -187,9 +233,15 @@ class ResearchMindWorkflow:
         if (
             not force
             and cached == signature
-            and self.store.paper_count(target_domain.domain_id)
+            and self.store.manifest_paper_count(
+                target_domain.domain_id,
+                include_deleted=True,
+            )
             == len(bundle.documents)
-            and self.store.evidence_count(target_domain.domain_id)
+            and self.store.evidence_count(
+                target_domain.domain_id,
+                include_deleted=True,
+            )
             == len(bundle.chunks)
         ):
             return LibrarySyncResult(
@@ -239,11 +291,25 @@ class ResearchMindWorkflow:
         expected_paper_ids: set[str] = set()
         for document in bundle.documents:
             title = _document_title(document.title, document.subtitle)
-            paper_id = _paper_id_for_domain(
+            manifest_paper_id = _paper_id_for_domain(
                 target_domain,
                 document.document_id,
             )
+            existing = self.store.find_paper_by_identifier(
+                target_domain.domain_id,
+                doi=document.doi,
+                title=title,
+                include_deleted=True,
+            )
+            paper_id = existing.paper_id if existing is not None else manifest_paper_id
             expected_paper_ids.add(paper_id)
+            evidence = tuple(chunks_by_file.get(document.file_name, []))
+            pdf_path = (pdf_dir / document.file_name).resolve()
+            imported_at = (
+                existing.imported_at
+                if existing is not None and existing.imported_at.strip()
+                else _now()
+            )
             paper = PaperRecord(
                 paper_id=paper_id,
                 domain_id=target_domain.domain_id,
@@ -253,17 +319,69 @@ class ResearchMindWorkflow:
                 journal=document.journal,
                 doi=document.doi,
                 source_url=document.source_url,
-                abstract="",
-                keywords=document.keywords,
-                pdf_path=str((pdf_dir / document.file_name).resolve()),
-                source="项目内置真实论文清单",
+                abstract=existing.abstract if existing is not None else "",
+                keywords=(
+                    existing.keywords
+                    if existing is not None and existing.keywords
+                    else document.keywords
+                ),
+                pdf_path=str(pdf_path),
+                source=(
+                    existing.source
+                    if existing is not None and existing.source.strip()
+                    else "项目内置真实论文清单"
+                ),
                 verification_status=(
                     "PDF SHA-256 已核验；书目信息来自 manifest.json"
                 ),
-                created_at=_now(),
+                created_at=(
+                    existing.created_at if existing is not None else _now()
+                ),
+                imported_at=imported_at,
+                category=(
+                    existing.category
+                    if existing is not None and existing.category.strip()
+                    else "待分类"
+                ),
+                parse_status="已解析" if evidence else "仅元数据",
+                analysis_status=(
+                    "已分析"
+                    if existing is not None
+                    and existing.analysis_status == "已分析"
+                    else ("待分析" if evidence else "未分析")
+                ),
+                is_deleted=(
+                    existing.is_deleted if existing is not None else False
+                ),
+                deleted_at=(
+                    existing.deleted_at if existing is not None else ""
+                ),
+                normalized_title=(
+                    existing.normalized_title
+                    if existing is not None
+                    and existing.normalized_title.strip()
+                    else _normalize_paper_title(title)
+                ),
+                normalization_version="v1",
+                import_origin=(
+                    existing.import_origin
+                    if existing is not None
+                    and existing.import_origin.strip()
+                    else (
+                        existing.source if existing is not None else ""
+                    )
+                ),
+                is_manifest_managed=(
+                    (
+                        existing.is_manifest_managed
+                        if existing is not None
+                        else False
+                    )
+                    or bool(evidence)
+                    or pdf_path.is_file()
+                ),
             )
             self.store.upsert_paper(paper)
-            evidence = tuple(chunks_by_file.get(document.file_name, []))
             self.store.replace_evidence(paper_id, evidence)
             written_evidence += len(evidence)
 
@@ -307,8 +425,17 @@ class ResearchMindWorkflow:
         )
         if domain is None:
             raise ResearchMindWorkflowError("研究领域不存在。")
-        self.store.upsert_domain(domain)
-        if self.store.paper_count(domain.domain_id) == 0:
+        if not self.read_only:
+            self.store.upsert_domain(domain)
+        if (
+            self.auto_sync_bundled
+            and not self.read_only
+            and self.store.manifest_paper_count(
+                domain.domain_id,
+                include_deleted=True,
+            )
+            == 0
+        ):
             self.sync_bundled_library(domain=domain)
         return domain
 
@@ -322,19 +449,57 @@ class ResearchMindWorkflow:
     ) -> PipelineResult:
         """执行阅读、观点比较、知识体系和自动组卷。"""
 
+        self._ensure_writable()
         domain = self.ensure_ready(domain_id)
         if self.store.paper_count(domain.domain_id) == 0:
             raise ResearchMindWorkflowError("当前领域没有可分析论文。")
-        analyses = self.reader.read_domain(domain.domain_id)
-        debate = self.debate_analyzer.analyze(domain.domain_id, topic)
-        synthesis = self.synthesizer.synthesize(domain.domain_id, debate=debate)
-        questions: tuple[AssessmentQuestion, ...] = ()
-        if generate_questions:
-            questions = self.assessment.generate_question_set(
-                domain.domain_id,
-                question_types=question_types,
-                debate_topic=topic,
+        papers = self.store.list_papers(domain.domain_id)
+        fingerprint = library_fingerprint(self.store, domain.domain_id)
+        mark_analysis_running(self.store, domain.domain_id, topic)
+        try:
+            analyses = self.reader.read_domain(domain.domain_id)
+            full_text_analysis_count = sum(
+                any(
+                    item.source_type == "全文"
+                    for item in analysis.all_evidence
+                )
+                for analysis in analyses
             )
+            abstract_analysis_count = sum(
+                bool(analysis.all_evidence)
+                and not any(
+                    item.source_type == "全文"
+                    for item in analysis.all_evidence
+                )
+                for analysis in analyses
+            )
+            skipped_count = len(papers) - len(analyses)
+            debate = self.debate_analyzer.analyze(domain.domain_id, topic)
+            synthesis = self.synthesizer.synthesize(
+                domain.domain_id,
+                debate=debate,
+            )
+            questions: tuple[AssessmentQuestion, ...] = ()
+            if generate_questions:
+                questions = self.assessment.generate_question_set(
+                    domain.domain_id,
+                    question_types=question_types,
+                    debate_topic=topic,
+                )
+        except Exception as error:
+            mark_analysis_failed(
+                self.store,
+                domain.domain_id,
+                topic,
+                f"{type(error).__name__}: {error}",
+            )
+            raise
+        mark_analysis_completed(
+            self.store,
+            domain.domain_id,
+            topic,
+            fingerprint,
+        )
         return PipelineResult(
             domain=domain,
             analyses=analyses,
@@ -342,8 +507,11 @@ class ResearchMindWorkflow:
             synthesis=synthesis,
             questions=questions,
             summary=(
-                f"完成 {len(analyses)} 篇论文结构化阅读、"
-                f"{len(debate.viewpoints)} 个可追溯观点分析、"
+                f"完成 {full_text_analysis_count} 篇全文结构化阅读，"
+                f"基于摘要分析 {abstract_analysis_count} 篇，"
+                f"跳过 {skipped_count} 篇纯题录、"
+                f"{len(debate.question_syntheses)} 个研究问题证据综合、"
+                f"{len(debate.conflicts)} 个同题学术争议、"
                 f"{len(synthesis.nodes)} 个知识图谱节点和 "
                 f"{len(questions)} 道试题。"
             ),
@@ -356,9 +524,11 @@ class ResearchMindWorkflow:
         answers: Mapping[str, str],
         topic: str = DEFAULT_DEBATE_TOPIC,
         generate_next: bool = True,
+        assessment_modules: Iterable[str] | None = None,
     ) -> LearningCycleResult:
         """批改一组答案，更新掌握度，并生成下一轮针对性试题。"""
 
+        self._ensure_writable()
         domain = self.ensure_ready(domain_id)
         graded: list[tuple[AssessmentQuestion, ScoreResult]] = []
         for question_id, answer in answers.items():
@@ -377,7 +547,12 @@ class ResearchMindWorkflow:
         if generate_next:
             next_questions = self.assessment.generate_question_set(
                 domain.domain_id,
-                question_types=_next_question_types(mastery),
+                question_types=(
+                    None
+                    if assessment_modules
+                    else _next_question_types(mastery)
+                ),
+                assessment_modules=assessment_modules,
                 debate_topic=topic,
             )
         recommendation = self.tutor.recommend(
@@ -410,6 +585,7 @@ class ResearchMindWorkflow:
         该结果只用于验证系统链路，不代表真实学生成绩，也不能作为科研数据。
         """
 
+        self._ensure_writable()
         domain = self.ensure_ready(domain_id)
         pipeline = self.run_analysis_pipeline(
             domain.domain_id,
@@ -426,6 +602,15 @@ class ResearchMindWorkflow:
             generate_next=True,
         )
         return pipeline, learning
+
+    def _ensure_writable(self) -> None:
+        """在修改任何论文库数据前统一执行只读保护。"""
+
+        if self.read_only:
+            raise ResearchMindWorkflowError(
+                "当前为旧论文库只读模式，不允许新建领域、同步、删除或重建数据。"
+                "如需编辑，请切换到青少年专题论文库。"
+            )
 
 
 def _library_signature(
@@ -449,6 +634,13 @@ def _document_title(title: str, subtitle: str) -> str:
     if not clean_subtitle:
         return title.strip()
     return f"{title.strip()}{clean_subtitle}"
+
+
+def _normalize_paper_title(value: str) -> str:
+    """生成与检索导入一致的、不依赖其他模块的题名去重键。"""
+
+    text = unicodedata.normalize("NFKC", str(value or "")).casefold()
+    return "".join(character for character in text if character.isalnum())
 
 
 def _paper_id_for_domain(

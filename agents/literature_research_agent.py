@@ -1,7 +1,9 @@
 """基于 Function Calling 的公开文献检索与综述 Agent。
 
-Agent 的公开检索边界是 Semantic Scholar 元数据和 arXiv 官方预印本元数据。
-它不会爬取知网，也不会把外部论文自动写入用户上传 PDF 的本地 RAG 知识库。
+Agent 的公开检索由统一多源编排器按
+Semantic Scholar → arXiv → OpenAlex → Crossref → PubMed 顺序聚合与回退，
+只读取公开元数据。它不会爬取知网，也不会把外部论文自动写入用户上传
+PDF 的本地 RAG 知识库。
 """
 
 from __future__ import annotations
@@ -12,6 +14,7 @@ from dataclasses import dataclass
 from typing import Any, Callable
 
 from config import Settings, settings as default_settings
+from researchmind.models import CandidatePaper
 from services.llm_service import LLMConfigurationError, LLMService
 from tools.arxiv_search import ArxivSearchError, arxiv_search
 from tools.citation_formatter import format_gbt7714
@@ -68,6 +71,8 @@ class LiteratureResearchResult:
     warnings: tuple[str, ...] = ()
     success: bool = True
     message: str = ""
+    report: dict[str, Any] | None = None
+    candidates: tuple[CandidatePaper, ...] = ()
 
     def to_dict(self) -> dict[str, Any]:
         """转换供界面或后续模块使用的普通字典。"""
@@ -83,6 +88,8 @@ class LiteratureResearchResult:
             "warnings": list(self.warnings),
             "success": self.success,
             "message": self.message,
+            "report": self.report,
+            "candidates": [candidate.__dict__ for candidate in self.candidates],
         }
 
 
@@ -95,11 +102,19 @@ class LiteratureResearchAgent:
         llm_service: LLMService | None = None,
         search_tool: Callable[..., tuple[SemanticScholarPaper, ...]] | None = None,
         preprint_tool: Callable[..., tuple[SemanticScholarPaper, ...]] | None = None,
+        fallback_tool: Callable[..., tuple[SemanticScholarPaper, ...]] | None = None,
+        retriever: Any = None,
     ) -> None:
         self.config = config or default_settings
         self.llm_service = llm_service or LLMService(self.config)
         self.search_tool = search_tool or semantic_scholar_search
         self.preprint_tool = preprint_tool or arxiv_search
+        # 第三回退源（如 OpenAlex/Crossref 适配层）；未注入时保持原两源链路。
+        self.fallback_tool = fallback_tool
+        # 统一多源编排器；注入后优先走多源聚合，未注入时保留旧回退链。
+        self.retriever = retriever
+        self._report_payload: dict[str, Any] | None = None
+        self._last_candidates: tuple[CandidatePaper, ...] = ()
 
     def run(
         self,
@@ -222,6 +237,8 @@ class LiteratureResearchAgent:
                 source=source,
                 warnings=tuple(search_warnings),
                 message="公开来源没有返回可核验论文，未生成综述或虚构引用。",
+                report=self._report_payload,
+                candidates=self._last_candidates,
             )
 
         messages.append(_sanitize_assistant_message(assistant_message))
@@ -281,9 +298,11 @@ class LiteratureResearchAgent:
             source=source,
             warnings=tuple(search_warnings),
             message=(
-                "综述只依据 Semantic Scholar/arXiv 返回的元数据和摘要，"
+                "综述只依据公开来源返回的元数据和摘要，"
                 "不能替代阅读论文全文。"
             ),
+            report=self._report_payload,
+            candidates=self._last_candidates,
         )
 
     def _run_without_llm(
@@ -316,6 +335,8 @@ class LiteratureResearchAgent:
                 message=(
                     "未获得可核验元数据；本轮不生成综述或引用。"
                 ),
+                report=self._report_payload,
+                candidates=self._last_candidates,
             )
 
         warnings.append(
@@ -335,6 +356,8 @@ class LiteratureResearchAgent:
                 "检索结果来自公开学术来源；摘要可能由来源缺失或截断，"
                 "正式引用前必须打开原文核验。"
             ),
+            report=self._report_payload,
+            candidates=self._last_candidates,
         )
 
     def _search_public_literature(
@@ -344,7 +367,10 @@ class LiteratureResearchAgent:
         limit: int,
         warnings: list[str],
     ) -> tuple[tuple[SemanticScholarPaper, ...], str]:
-        """优先 Semantic Scholar，失败或无结果时回退 arXiv。"""
+        """优先统一多源编排器；未注入时按 SS→arXiv→备用来源回退。"""
+
+        if self.retriever is not None:
+            return self._search_with_retriever(query, limit, warnings)
 
         try:
             papers = self.search_tool(query, limit)
@@ -365,7 +391,89 @@ class LiteratureResearchAgent:
             warnings.append("arXiv 也未返回匹配预印本。")
         except (ArxivSearchError, ValueError, OSError) as exc:
             warnings.append(f"arXiv 检索失败：{exc}")
-        return (), "Semantic Scholar / arXiv"
+
+        if self.fallback_tool is not None:
+            try:
+                papers = self.fallback_tool(query, limit)
+                if papers:
+                    return papers, papers[0].source or "备用公开来源"
+                warnings.append("备用公开来源也未返回匹配论文。")
+            except (RuntimeError, ValueError, OSError) as exc:
+                warnings.append(f"备用公开来源检索失败：{exc}")
+        return (), "Semantic Scholar / arXiv / 备用来源"
+
+    def _search_with_retriever(
+        self,
+        query: str,
+        limit: int,
+        warnings: list[str],
+    ) -> tuple[tuple[SemanticScholarPaper, ...], str]:
+        """调用统一多源编排器，聚合结果并保留各源状态报告。"""
+
+        report = self.retriever.search(query, limit=limit)
+        self._last_candidates = report.candidates
+        self._report_payload = _report_to_payload(report)
+        warnings.extend(report.warnings)
+
+        papers = tuple(_candidate_to_paper(c) for c in report.candidates)
+        success_sources = [
+            source.source
+            for source in report.sources
+            if source.status == "success" and source.returned > 0
+        ]
+        source = "、".join(success_sources) if success_sources else "全部数据源失败"
+        return papers, source
+
+
+def _candidate_to_paper(candidate: CandidatePaper) -> SemanticScholarPaper:
+    """把统一候选元数据适配为综述/引用/展示使用的论文对象。"""
+
+    return SemanticScholarPaper(
+        paper_id=candidate.candidate_id,
+        title=candidate.title,
+        authors=candidate.authors,
+        year=candidate.year,
+        abstract=candidate.abstract,
+        doi=candidate.doi,
+        pdf_url=candidate.pdf_url,
+        url=candidate.source_url,
+        venue=candidate.journal,
+        publication_types=candidate.keywords,
+        source=candidate.source,
+    )
+
+
+def _report_to_payload(report: Any) -> dict[str, Any]:
+    """把多源检索报告序列化为界面可展示的字典。"""
+
+    return {
+        "query": report.query,
+        "expanded_queries": list(report.expanded_queries),
+        "total_raw": report.total_raw,
+        "total_unique": report.total_unique,
+        "verified_doi_count": report.verified_doi_count,
+        "incomplete_count": report.incomplete_count,
+        "unverifiable_count": report.unverifiable_count,
+        "abstract_count": report.abstract_count,
+        "fulltext_count": report.fulltext_count,
+        "all_failed": report.all_failed,
+        "sources": [
+            {
+                "source": source.source,
+                "status": source.status,
+                "requested": source.requested,
+                "returned": source.returned,
+                "elapsed_ms": source.elapsed_ms,
+                "http_status": source.http_status,
+                "error": source.error,
+                "retryable": source.retryable,
+                "attempts": source.attempts,
+                "suggestion": source.suggestion,
+            }
+            for source in report.sources
+        ],
+        "warnings": list(report.warnings),
+    }
 
 
 def _select_semantic_scholar_call(

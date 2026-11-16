@@ -1,0 +1,67 @@
+{
+  "url": "http://127.0.0.1:8502",
+  "pages": [
+    {
+      "page": "首页",
+      "screenshot": "01-home.png",
+      "has_page_load_error": false,
+      "has_operation_error": false
+    },
+    {
+      "page": "科研工作台",
+      "screenshot": "02-workbench.png",
+      "has_page_load_error": false,
+      "has_operation_error": false
+    },
+    {
+      "page": "文献自动采集",
+      "screenshot": "03-literature-collection.png",
+      "has_page_load_error": false,
+      "has_operation_error": false
+    },
+    {
+      "page": "我的论文库",
+      "screenshot": "04-paper-library.png",
+      "has_page_load_error": false,
+      "has_operation_error": false
+    },
+    {
+      "page": "学术分歧分析",
+      "screenshot": "05-academic-debate.png",
+      "has_page_load_error": false,
+      "has_operation_error": false
+    },
+    {
+      "page": "知识图谱",
+      "screenshot": "06-knowledge-graph.png",
+      "has_page_load_error": false,
+      "has_operation_error": false
+    },
+    {
+      "page": "AI 学习测评",
+      "screenshot": "07-learning-assessment.png",
+      "has_page_load_error": false,
+      "has_operation_error": false
+    },
+    {
+      "page": "学习成长报告",
+      "screenshot": "08-learning-report.png",
+      "has_page_load_error": false,
+      "has_operation_error": false
+    },
+    {
+      "page": "知识图谱总结",
+      "screenshot": "09-knowledge-summary.png",
+      "has_page_load_error": false,
+      "has_operation_error": false
+    },
+    {
+      "page": "文献证据问答",
+      "screenshot": "10-evidence-qa.png",
+      "has_page_load_error": false,
+      "has_operation_error": false
+    }
+  ],
+  "browser_errors": [],
+  "passed": true
+}

@@ -1,182 +1,168 @@
-# 体研智脑 Agent 系统架构
-
-本文档描述当前代码中已经实现的架构，不把规划中的能力写成已完成能力。
+# 体研智脑 Agent 技术架构
 
 ## 1. 架构目标
 
-系统面向本机单用户的科研辅助与竞赛演示，优先保证四件事：
+系统面向本机单用户的体育科研辅助，不以多租户生产平台为目标。设计优先级为：
 
-1. 外部文献只读取公开元数据或明确开放获取的 PDF。
-2. 论文回答、观点比较和测评题目尽量保留文件名、题名和页码证据。
-3. 外部模型、检索接口或向量库不可用时，页面不崩溃，并显示可执行的提示。
-4. 模拟回答、规则模板和真实模型输出必须明确区分。
-
-当前没有账号、租户隔离、分布式任务队列和自主多 Agent 协商。
+1. 真实题录、PDF、页码和原文可以追溯。
+2. 模型只处理语义任务，不拥有事实数据的最终写入权。
+3. 外部检索、向量库和模型失败时保留可解释降级路径。
+4. 论文库变化后，旧分析、图谱和试题不能继续冒充当前结果。
+5. 核心工作流可测试、可恢复、可在 Windows 本机复现。
 
 ## 2. 分层结构
 
 ```text
-Streamlit 页面层
+页面层
 ├── app.py
 ├── researchmind/ui.py
-└── researchmind/literature_research_ui.py
-        |
+├── researchmind/literature_research_ui.py
+└── researchmind/knowledge_map_ui.py
+
 业务编排层
 ├── agents/planner.py
 ├── agents/literature_research_agent.py
 ├── researchmind/workflow.py
-└── researchmind/workbench.py
-        |
-领域服务与 Agent 层
+├── researchmind/workbench.py
+└── researchmind/library_state.py
+
+领域服务与 Agent 型角色
 ├── researchmind/collectors.py
+├── researchmind/literature_retrieval.py
 ├── researchmind/agents.py
-├── services/llm_service.py
+├── researchmind/knowledge_map.py
 ├── services/rag_service.py
-├── services/user_paper_rag.py
-└── services/vector_service.py
-        |
-工具与持久化层
+└── services/user_paper_rag.py
+
+工具与持久化
 ├── tools/pdf_reader.py
 ├── tools/document_chunker.py
 ├── tools/library_ingest.py
-├── tools/literature_framework.py
-├── tools/semantic_scholar.py
-├── tools/arxiv_search.py
 ├── researchmind/storage.py
-└── knowledge_base/、data/
+└── services/vector_service.py
 ```
 
-页面层不直接拼接数据库 SQL。科研流程通过业务层调用 Agent、工具和存储类，便于逐模块测试。
+页面层不直接执行 SQL，也不直接拼装科研结论。业务层通过领域组件和工具服务读取
+论文、证据、分析、题库与状态。
 
-## 3. 主要运行路径
+## 3. Agent 工作流
 
-### 3.1 科研工作台
+### 3.1 任务规划
 
-```text
-用户研究问题
-  -> 规则任务规划
-  -> 检索词与中文数据库表达式草稿
-  -> 本地证据检索
-  -> 研究设计模板和阶段状态
-  -> JSON 工作底稿导出
-```
+`ResearchPlannerAgent` 采用规则识别研究类型并生成：
 
-科研报告不会被系统自动标记为完成。没有真实执行的研究步骤仍显示为“待完成”或模板状态。
+- 研究步骤；
+- 工具路线；
+- 中文数据库检索式草案；
+- 选题模板；
+- 研究设计检查项。
 
-### 3.2 论文导入与知识框架
+这是可复现的规则规划，不是大模型自主规划。
 
-```text
-PDF 或开放获取下载
-  -> 文件类型、大小和可读性校验
-  -> SHA-256 去重
-  -> PyMuPDF 提取文本
-  -> 书目信息识别
-  -> 页级证据切分
-  -> manifest.json / evidence_chunks.json
-  -> 九维研究框架
-  -> BM25 与 Chroma 索引
-  -> ResearchMind SQLite 论文库
-```
-
-`knowledge_base/pdfs/` 保存已登记论文，`knowledge_base/index/evidence_chunks.json` 保存页级证据，`knowledge_base/framework.json` 保存九维归类。Chroma 是可从证据文件重建的派生索引。
-
-### 3.3 公开文献检索与综述
+### 3.2 Function Calling 文献检索
 
 ```text
 研究问题
-  -> 配置模型时先通过 Function Calling 优化检索词
-  -> semantic_scholar_search(query, limit)
-  -> Semantic Scholar 元数据
-  -> 无结果或服务不可用时尝试 arXiv
-  -> 只基于返回元数据整理研究现状
-  -> GB/T 7714 风格引用草稿
+  -> LLM 生成 semantic_scholar_search(query, limit)
+  -> MultiSourceRetriever
+     -> Semantic Scholar
+     -> arXiv
+     -> OpenAlex
+     -> Crossref
+     -> PubMed
+  -> 真实元数据、去重、字段完整性分级
+  -> LLM 基于返回元数据整理综述，或规则整理
 ```
 
-在当前开发网络曾观察到 Semantic Scholar 返回 HTTP 403。代码已提供错误转换、arXiv 回退和界面提示，但正式参赛前必须在评审网络重新执行真实检索，不能仅根据单元测试宣称外部服务可用。
+Function Calling 只负责选择检索工具和参数；事实结果来自真实公开 API。
+单源失败被隔离，429/403/5xx 按配置退避重试，网络中断可恢复。
 
-公开检索只处理题名、作者、年份、摘要、DOI 和开放 PDF 链接，不写入用户 PDF 向量库。
-
-### 3.4 用户 PDF 隔离 RAG
-
-```text
-用户主动上传 PDF
-  -> 文件校验与 SHA-256
-  -> data/user_papers/<SHA-256>/
-  -> 页级文本与证据文件
-  -> 独立 Chroma 集合 user_uploaded_papers
-  -> 返回所选文件、页码和原文证据
-```
-
-外部检索元数据与用户上传全文使用不同存储路径和不同 Chroma 集合，避免把公开元数据误当成用户全文证据。
-
-### 3.5 ResearchMind 六阶段工作流
+### 3.3 ResearchMind 顺序工作流
 
 ```text
-LiteratureCollector
+LiteratureCollector / Zotero Local API
   -> PaperReader
   -> AcademicDebateAnalyzer
   -> KnowledgeSynthesizer
   -> LearningAssessmentAgent
   -> PersonalTutorAgent
+  -> 错题、掌握度与新检索需求
 ```
 
-职责对应关系：
+`ResearchMindWorkflow` 使用显式顺序编排，并保存论文库指纹、分析范围和状态。
+两个后台线程最多处理两个分析任务；相同数据库、领域和指纹的任务会合并。
 
-| 阶段 | 当前实现 | 主要输出 |
-| --- | --- | --- |
-| 文献采集 | `researchmind/collectors.py` | OpenAlex/Crossref 元数据、开放 PDF 候选 |
-| 论文阅读 | `researchmind/agents.py::PaperReader` | 目的、对象、方法、结果、结论、局限和证据 |
-| 争议分析 | `AcademicDebateAnalyzer` | 观点、论文、原文、页码、方法差异和证据强度 |
-| 知识综合 | `KnowledgeSynthesizer` | 概念、理论框架、共识、分歧、局限与空白 |
-| 学习测评 | `LearningAssessmentAgent` | 六种题型、标准答案、评分细则和知识点 |
-| 个性化辅导 | `PersonalTutorAgent` | 批改记录、薄弱点、推荐论文和下一轮计划 |
+## 4. 证据模型
 
-`researchmind/workflow.py` 是显式顺序编排，不是 LangGraph 图执行。保留这一层是为了未来在不改写 Agent 和存储接口的前提下接入 LangGraph。
+`EvidenceRef` 是全局事实引用对象：
 
-## 4. 检索与回退
-
-检索模式由 `RAG_RETRIEVAL_MODE` 控制：
-
-| 模式 | 行为 |
+| 字段 | 含义 |
 | --- | --- |
-| `hybrid` | 合并 BM25 与 Chroma 语义结果 |
-| `semantic` | 优先 Chroma，不可用时回退 BM25 |
-| `bm25` | 只使用本地关键词检索 |
+| `chunk_id` | 证据片段稳定 ID |
+| `document_id` | 论文 ID |
+| `document_title` | 论文题名 |
+| `file_name` | PDF 文件名 |
+| `page_number` | 页码 |
+| `quote` | 原文片段 |
+| `source_type` | 全文、摘要或元数据 |
+| `section_hint` | 方法、结果、结论等段落提示 |
 
-Chroma 使用 `sentence-transformers` 生成向量。模型下载失败、HNSW 派生索引损坏或集合不可打开时，系统给出提示并保留 BM25 可用路径。发现 HNSW 损坏时，服务会尝试把旧目录隔离为 `knowledge_base/chroma.corrupt-时间戳` 后重建。
+阅读、RAG、争议、图谱和测评复用同一证据模型。摘要级证据明确标记，不伪装成
+全文页码证据。
 
-## 5. 数据与隐私边界
+## 5. RAG 架构
 
-| 数据 | 默认位置 | Git/公开导出 |
+### 5.1 检索
+
+- BM25：中文双字与英文连续词项；
+- Chroma：`intfloat/multilingual-e5-small`；
+- 混合检索：关键词候选与语义候选融合；
+- 语义失败或 HNSW 损坏：隔离旧索引并从证据文件重建，期间可回退 BM25。
+
+### 5.2 回答
+
+| 路径 | 行为 |
+| --- | --- |
+| 证据约束模型 | 只接收检索片段，关键结论标证据编号 |
+| 本地摘录 | 不调用模型，展示命中原文并明确标记 |
+| 证据不足 | 不调用模型，不补写结论 |
+
+## 6. 数据事实源
+
+| 数据 | 位置 | 事实地位 |
 | --- | --- | --- |
-| 环境变量与密钥 | `.env` | 禁止 |
-| 学习记录与答题历史 | `data/researchmind.sqlite3` | 禁止 |
-| 用户上传 PDF 与证据 | `data/user_papers/` | 禁止 |
-| 论文全文和派生索引 | `knowledge_base/pdfs/`、`index/`、`chroma/` | 默认禁止，逐篇许可审核 |
-| 浏览器资料与日志 | `.tmp/`、`outputs/` | 禁止 |
-| 示例配置 | `.env.example` | 允许，只能有变量名和空占位符 |
+| PDF | `knowledge_base*/pdfs/`、Zotero 路径、用户目录 | 原文文件 |
+| 页级证据 | SQLite `paper_evidence`、JSON 索引 | 页码级事实源 |
+| 论文与分析 | SQLite | 当前科研状态 |
+| Chroma | 知识库 `chroma/` | 可重建派生索引 |
+| 用户上传 PDF | `data/user_papers/` | 隔离私有空间 |
+| 旧库 | `knowledge_base/` | 默认只读，不自动迁移 |
 
-公开部署前必须增加账号隔离、上传隔离、请求限流、操作审计和密钥管理；当前版本不应直接作为生产级多用户服务使用。
+## 7. 一致性与恢复
 
-## 6. 外部接口与错误处理
+- 论文元数据、证据、分类和题名规范化结果生成 SHA-256 论文库指纹。
+- 指纹变化后，旧争议、综合、图谱和测评进入失效或待更新状态。
+- 软删除保留论文、证据和 PDF；恢复后重新进入查询。
+- 永久删除要求先进入回收站并生成备份。
+- 共享 PDF 不会因删除单篇论文而被删除。
+- SQLite 写入使用事务；PDF 入库失败时恢复清单、索引和框架。
 
-| 接口 | 用途 | 失败时的当前行为 |
-| --- | --- | --- |
-| OpenAI 兼容 `/chat/completions` | 问答、Function Calling、主观题评分 | 无 Key 或调用失败时显示提示；支持能力回退到规则或抽取式回答 |
-| Semantic Scholar Graph API | 公开论文元数据 | 转换为中文错误，尝试 arXiv |
-| arXiv Atom API | 公开预印本元数据 | 返回空结果并提示 |
-| OpenAlex | 文献自动采集 | 尝试 Crossref |
-| Crossref | 文献自动采集回退 | 返回可展示错误 |
-| Zotero Web API | 元数据与附件同步 | 未配置或失败时不阻断本地功能 |
+## 8. 异常与降级
 
-所有真实 Key 必须从环境变量读取。日志、异常消息和导出材料不得包含 Authorization 头或 Key 原文。
+| 失败 | 行为 |
+| --- | --- |
+| 模型未配置 | 明示模拟回答或原文摘录，不伪造引用 |
+| Function Calling 失败 | 改用规则检索，保留失败警告 |
+| 单源限流/超时 | 重试、退避、切到其他公开来源 |
+| 向量库失败 | BM25 回退或隔离重建 |
+| 无证据 | 返回证据不足 |
+| PDF 损坏/加密/扫描版 | 拒绝或提示无法建立文字索引 |
+| 数据库变化 | 旧分析冻结并后台重算 |
+| 组卷字段不足 | 跳过无法生成题型并说明字段缺口 |
 
-## 7. 测试与验收层级
+## 9. 真实性与边界
 
-1. 单元测试：数据模型、检索参数、PDF 导入、评分、安全审计。
-2. 工作流测试：论文库同步、争议分析、知识综合、组卷和错题推荐。
-3. 页面测试：Streamlit 页面可导入和关键交互函数可调用。
-4. 外部接口测试：只记录真实执行结果，不用 Mock 结果宣称线上服务可用。
-5. 提交包审计：文件名、压缩包成员与文本内容同时检查，PDF 单独人工复核许可。
-
-完整执行结果应以当前 `pytest`、语法检查、`pip check`、Streamlit 健康检查和导出包审计的实际输出为准。
+- 六个角色由同一工作流顺序调用，不是六个独立大模型。
+- Function Calling、RAG、主观题评分会调用模型；其余科研判断以规则和证据为主。
+- 自动共识/争议是初筛，不是正式系统综述。
+- 当前没有完整事件日志、多租户权限、OCR 和 500 页实测。

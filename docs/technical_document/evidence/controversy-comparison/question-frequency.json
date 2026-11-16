@@ -1,0 +1,60 @@
+{
+  "input_evidence": [
+    {
+      "evidence_id": "E1",
+      "paper_id": "zotero-66RBHSFK",
+      "paper_title": "The effects of concurrent training on physical fitness in children and adolescents: a systematic review and meta-analysis",
+      "source_type": "全文",
+      "location": "第 1 页",
+      "quote_sha256": "c9d2414dd06cfec2cd0dbcb519f3472920746c071834826aa6a65acf291e2fda",
+      "quote_preview": "were associated with greater improvements in \nVO₂ max in the pediatric and adolescent population. An 8-week concurrent \ntraining intervention period resulted in",
+      "quote_text": "were associated with greater improvements in \nVO₂ max in the pediatric and adolescent population. An 8-week concurrent \ntraining intervention period resulted in improvements in both maximal oxygen \nuptake and lower-body explosive power.\nConclusion: Concurrent training ≤3 times per week does not produce “interference \neffects” in children and adolescents; concurrent training can signiﬁcantly improve \ncardiorespiratory endurance while maintaining strength levels in this population.\nSystematic Review Registration: https://www.crd.york.ac.uk/PROSPERO/view/ \nCRD420251242860, PROSPERO CRD420251242860.\nKEYWORDS\nchildren and adolescents, concurrent training, endurance training, physical ﬁtness,",
+      "quote_length": 695,
+      "quote_text_status": "按SHA-256精确匹配，从本地授权证据库还原",
+      "quote_match_count": 1
+    },
+    {
+      "evidence_id": "E2",
+      "paper_id": "zotero-3BBG7YN5",
+      "paper_title": "The effectiveness of two different exercise approaches in adolescent idiopathic scoliosis: A single-blind, randomized-controlled trial",
+      "source_type": "摘要",
+      "location": "摘要（未提供可检索全文）",
+      "quote_sha256": "d0e7f97f1b95a9e172f4655c554601eeda79c2abff86a0f7c33547f734bf412b",
+      "quote_preview": "Objectives The purpose of this study was to compare the efficacy of two different types of exercise methods in patients with adolescent idiopathic scoliosis. Me",
+      "quote_text": "Objectives The purpose of this study was to compare the efficacy of two different types of exercise methods in patients with adolescent idiopathic scoliosis. Methods In total, 28 subjects with adolescent idiopathic scoliosis with a mild curve magnitude (10°-26°) were randomly divided into two groups: the Schroth group (n = 14) and the core group (n = 14). The patients in the Schroth group were treated with supervised Schroth exercises, and the patients in the core group were treated with supervised core stabilization exercises; both groups performed the exercises for three days per week for a total of 10 weeks, and both were given additional traditional exercises to perform. Assessment included Cobb angle (Radiography), trunk rotation (Adam's test), cosmetic trunk deformity (Walter Reed Visual Assessment Scale), spinal mobility (Spinal Mouse), peripheral muscle strength (Biodex System 4-Pro), and quality of life (Scoliosis Research Society-22 questionnaire). Results It was found that patients in the Schroth group showed greater improvement in Cobb angles, thoracic trunk rotation angle, cosmetic trunk deformity, spinal mobility, and quality of life than those in the core group (p Conclusion Schroth exercises are more effective than core stabilization exercises in the correction of scoliosis and related problems in mild adolescent idiopathic scoliosis, and core stabilization exercises are more effective than Schroth exercises in the improvement of peripheral muscle strength. Trial registration NCT04421157.",
+      "quote_length": 1529,
+      "quote_text_status": "按论文ID与保存预览前136字符匹配，存在嵌套片段时取最长片段，从本地授权证据库还原",
+      "quote_match_count": 2
+    },
+    {
+      "evidence_id": "E3",
+      "paper_id": "zotero-KS4CWGFP",
+      "paper_title": "Physical education–embedded fitness-oriented exercise interventions for youth physical fitness: a systematic review and meta-analysis",
+      "source_type": "全文",
+      "location": "第 9 页",
+      "quote_sha256": "afe09bac51fbe6b616b57e6a3eba3c49761ae09e1c89bd3e7c648c9874ebedb3",
+      "quote_preview": "nega­\ntive study-level association between intervention dura­\ntion and the effect size for lower-limb explosive power \n(β=−0.026, 95% CI − 0.051 to − 0.001, P =",
+      "quote_text": "nega­\ntive study-level association between intervention dura­\ntion and the effect size for lower-limb explosive power \n(β=−0.026, 95% CI − 0.051 to − 0.001, P = 0.041), but this \nresult should not be interpreted as an individual-level \ncausal dose–response relationship. Apart from this find­\ning, intervention duration, weekly frequency, session \nlength, and total intervention minutes did not show clear \nlinear associations with effect sizes across outcomes. \nBecause some subgroup levels included few studies, \ncovariate distributions were imbalanced, and univariable \nmeta-regression could not adequately control for inter­\nvention type, educational stage, sex, study design, clus­",
+      "quote_length": 686,
+      "quote_text_status": "按SHA-256精确匹配，从本地授权证据库还原",
+      "quote_match_count": 1
+    }
+  ],
+  "model_response": {
+    "has_conflict": false,
+    "conflict_question": "运动频率与健康效果",
+    "viewpoint_a": "",
+    "papers_a": [],
+    "viewpoint_b": "",
+    "papers_b": [],
+    "citations": [
+      "E1",
+      "E2",
+      "E3"
+    ],
+    "confidence": 0.95,
+    "explanation": "未发现针对同一结局、同一方向比较的运动频率与健康效果相反结果。E1仅说明每周≤3次并发训练未产生干扰效应并可改善心肺耐力、维持力量；E2两组均为每周3次，比较Schroth与核心稳定训练，不涉及频率与健康效果的相反结论；E3报告每周频率与各结局效应量无清晰线性关联，且其负向结果针对干预时长与下肢爆发力，并非运动频率的相反证据。因此证据不足以判定存在真实学术争议。"
+  },
+  "raw_response": "{\"has_conflict\":false,\"conflict_question\":\"运动频率与健康效果\",\"viewpoint_a\":\"\",\"papers_a\":[],\"viewpoint_b\":\"\",\"papers_b\":[],\"citations\":[\"E1\",\"E2\",\"E3\"],\"confidence\":0.95,\"explanation\":\"未发现针对同一结局、同一方向比较的运动频率与健康效果相反结果。E1仅说明每周≤3次并发训练未产生干扰效应并可改善心肺耐力、维持力量；E2两组均为每周3次，比较Schroth与核心稳定训练，不涉及频率与健康效果的相反结论；E3报告每周频率与各结局效应量无清晰线性关联，且其负向结果针对干预时长与下肢爆发力，并非运动频率的相反证据。因此证据不足以判定存在真实学术争议。\"}",
+  "error": ""
+}

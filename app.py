@@ -16,9 +16,10 @@ from pathlib import Path
 import pandas as pd
 import streamlit as st
 
-from agents.planner import ResearchPlannerAgent
+from agents.planner import ResearchPlannerAgent, SIMULATION_NOTICE
 from config import settings
 from researchmind.ui import (
+    RESEARCHMIND_PAGE_ALIASES,
     RESEARCHMIND_PAGES,
     get_researchmind_workflow,
     render_researchmind_page,
@@ -30,6 +31,8 @@ from services.rag_service import (
     EvidenceRAGService,
     HybridEvidenceIndex,
     LocalEvidenceIndex,
+    MAX_RETRIEVAL_COUNT,
+    normalize_retrieval_count,
 )
 from services.vector_service import (
     EvidenceVectorStore,
@@ -230,7 +233,8 @@ PAGE_ASSISTANT_CONTEXTS: dict[str, str] = {
     "论文智能阅读": "解释论文目的、对象、方法、结果、结论和局限性的结构化提取。",
     "学术观点对比": "比较不同论文的观点、样本、研究设计、测量指标和统计方法。",
     "学术分歧分析": "识别学术共识、争议、证据强度和研究空白，并保留原文来源。",
-    "知识图谱": "解释领域概念、理论关系、研究主题和证据之间的结构化联系。",
+    "知识图谱": "解释领域概念、理论关系、研究主题、研究方向、变量和证据之间的结构化联系。",
+    "知识图谱总结": "解释研究主题、学术共识、争议、研究局限、空白、创新方向及原文证据追溯。",
     "AI 学习测评": "根据知识库生成题目、说明评分标准并组织当前测试。",
     "错题本": "分析错题原因、关联薄弱知识点并推荐复习材料。",
     "学习成长报告": "解读五维能力掌握度、学习趋势、薄弱点和下一轮复习计划。",
@@ -2194,7 +2198,10 @@ def get_home_research_snapshot() -> HomeResearchSnapshot:
     source_titles: tuple[str, ...] = ()
 
     try:
-        bundle = get_bundled_knowledge_base()
+        workflow = get_researchmind_workflow()
+        bundle = load_bundled_knowledge_base(
+            workflow.knowledge_base_dir
+        )
         papers = len(bundle.documents)
         evidence = len(bundle.chunks)
         source_titles = tuple(
@@ -2228,6 +2235,7 @@ def get_home_research_snapshot() -> HomeResearchSnapshot:
 def request_navigation(page: str) -> None:
     """请求切换到指定页面，并在下一次界面刷新前更新导航状态。"""
 
+    page = RESEARCHMIND_PAGE_ALIASES.get(page, page)
     if page not in PAGES:
         raise ValueError(f"未知页面：{page}")
     st.session_state["pending_navigation"] = page
@@ -2237,7 +2245,10 @@ def request_navigation(page: str) -> None:
 def update_navigation_from_sidebar() -> None:
     """将侧边栏下拉框的选择同步为当前页面。"""
 
-    selected_page = st.session_state.get("sidebar_navigation")
+    selected_page = RESEARCHMIND_PAGE_ALIASES.get(
+        st.session_state.get("sidebar_navigation"),
+        st.session_state.get("sidebar_navigation"),
+    )
     if selected_page in PAGES:
         st.session_state["navigation"] = selected_page
 
@@ -2363,10 +2374,14 @@ def render_sidebar() -> str:
         unsafe_allow_html=True,
     )
     pending_page = st.session_state.pop("pending_navigation", None)
+    pending_page = RESEARCHMIND_PAGE_ALIASES.get(pending_page, pending_page)
     if pending_page in PAGES:
         st.session_state["navigation"] = pending_page
 
-    page = st.session_state.get("navigation", "首页")
+    page = RESEARCHMIND_PAGE_ALIASES.get(
+        st.session_state.get("navigation", "首页"),
+        st.session_state.get("navigation", "首页"),
+    )
     if page not in PAGES:
         page = "首页"
     st.session_state["navigation"] = page
@@ -2479,7 +2494,7 @@ def render_home_task_form() -> tuple[bool, str]:
             task = st.text_area(
                 "科研任务",
                 placeholder=(
-                    "分析研究方法与核心结论，例如：研究大学生体育锻炼行为"
+                    "分析研究方法与核心结论，例如：研究青少年体育锻炼干预"
                     "与体质健康水平的关系，并制定数据分析计划"
                 ),
                 label_visibility="collapsed",
@@ -3307,6 +3322,9 @@ def render_evidence_qa() -> None:
     if not isinstance(index, (LocalEvidenceIndex, HybridEvidenceIndex)):
         st.caption("请重新加载内置文献库，或上传 PDF 后建立临时证据库。")
         return
+    if not index.chunks:
+        st.warning("当前证据库中没有论文，请先导入论文或加载内置文献库。")
+        return
 
     vector_status = index.status() if isinstance(index, HybridEvidenceIndex) else None
     if vector_status is not None:
@@ -3395,11 +3413,16 @@ def render_evidence_qa() -> None:
             placeholder="例如：这篇研究采用了什么研究设计？主要结局指标有哪些？",
             height=100,
         )
+        max_retrieval_count = min(MAX_RETRIEVAL_COUNT, len(index.chunks))
+        default_retrieval_count = min(
+            normalize_retrieval_count(settings.rag_top_k),
+            max_retrieval_count,
+        )
         top_k = st.slider(
             "检索证据数量",
             min_value=1,
-            max_value=min(8, max(1, len(index.chunks))),
-            value=min(settings.rag_top_k, max(1, len(index.chunks))),
+            max_value=max_retrieval_count,
+            value=default_retrieval_count,
         )
         if isinstance(index, HybridEvidenceIndex):
             retrieval_labels = {
@@ -3426,14 +3449,18 @@ def render_evidence_qa() -> None:
         asked = st.form_submit_button("检索并回答", type="primary")
 
     if asked:
-        with st.spinner("正在检索原文证据..."):
-            answer = EvidenceRAGService(index, service).answer_question(
-                question,
-                top_k=top_k,
-                use_llm=use_llm,
-                retrieval_mode=retrieval_mode,
-            )
-        st.session_state["evidence_answer"] = answer
+        try:
+            with st.spinner("正在检索原文证据..."):
+                answer = EvidenceRAGService(index, service).answer_question(
+                    question,
+                    top_k=top_k,
+                    use_llm=use_llm,
+                    retrieval_mode=retrieval_mode,
+                )
+        except Exception as exc:
+            st.error(f"证据检索失败：{exc}")
+        else:
+            st.session_state["evidence_answer"] = answer
 
     answer = st.session_state.get("evidence_answer")
     if answer is not None:

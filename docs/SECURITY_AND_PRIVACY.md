@@ -4,6 +4,8 @@
 
 ## 1. 当前风险结论
 
+- 2026-11-16 仓库整理复核：`.env`、SQLite、PDF、用户数据、虚拟环境、日志和测试临时目录
+  已加入 `.gitignore`；当前 Git 跟踪文件中未发现真实密钥。
 - 项目过去曾在聊天中暴露过真实大模型 API Key。该 Key 必须立即在服务商控制台吊销并重新生成，不能只依赖删除本地文件。
 - 根目录 `.env` 包含真实本地配置，只能保留在本机，不进入 Git、截图、录屏或提交压缩包。
 - `data/researchmind.sqlite3` 含本机学习记录和答题历史，属于个人数据，默认不公开。
@@ -23,10 +25,12 @@
 
 ## 3. 日常审计
 
-在项目根目录执行：
+对整个本地工作区执行审计会主动发现 `.env`、SQLite、PDF 和测试临时目录，因此
+返回阻断是预期行为，不能为了“让审计变绿”而删除用户数据。正式提交时先生成不含
+本地隐私数据的干净提交目录，再对该目录执行：
 
 ```powershell
-.\.venv\Scripts\python.exe -m tools.security_audit . --json
+.\.venv\Scripts\python.exe -m tools.security_audit ".\build\competition-source" --json
 ```
 
 若需要把“需人工复核”也视为失败：

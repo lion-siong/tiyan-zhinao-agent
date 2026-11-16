@@ -26,6 +26,17 @@ QUESTION_TYPES = (
     "简答题",
     "论述题",
     "文献对比分析题",
+    "深度理解题",
+    "学术思辨题",
+    "个性化补学题",
+)
+
+ASSESSMENT_MODULES = (
+    "基础知识理解",
+    "文献深度理解",
+    "文献对比分析",
+    "学术思辨训练",
+    "个性化错题与补学",
 )
 
 OBJECTIVE_TYPES = frozenset(
@@ -42,7 +53,7 @@ def _clean_text(value: str, fallback: str = "") -> str:
 
 @dataclass(frozen=True)
 class EvidenceRef:
-    """一条可定位到真实论文 PDF 的原文证据。"""
+    """一条可定位到真实论文全文、摘要或元数据的证据。"""
 
     chunk_id: str
     document_id: str
@@ -50,6 +61,8 @@ class EvidenceRef:
     file_name: str
     page_number: int
     quote: str
+    source_type: str = "全文"
+    section_hint: str = ""
 
     def __post_init__(self) -> None:
         if not self.chunk_id.strip():
@@ -69,10 +82,20 @@ class EvidenceRef:
     def citation(self) -> str:
         """返回可直接展示给用户的来源定位。"""
 
+        if self.source_type == "摘要":
+            return f"{self.document_title}，摘要证据（原文未提供可检索全文）"
         return (
             f"{self.document_title}（{self.file_name}），"
             f"第 {self.page_number} 页"
         )
+
+    @property
+    def location_label(self) -> str:
+        if self.source_type == "摘要":
+            return "摘要（未提供可检索全文）"
+        if self.source_type == "元数据":
+            return "论文元数据"
+        return f"第 {self.page_number} 页"
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -82,6 +105,8 @@ class EvidenceRef:
             "file_name": self.file_name,
             "page_number": self.page_number,
             "quote": self.quote,
+            "source_type": self.source_type,
+            "section_hint": self.section_hint,
         }
 
     @classmethod
@@ -93,6 +118,8 @@ class EvidenceRef:
             file_name=str(data["file_name"]),
             page_number=int(data["page_number"]),
             quote=str(data["quote"]),
+            source_type=str(data.get("source_type", "全文")),
+            section_hint=str(data.get("section_hint", "")),
         )
 
 
@@ -129,7 +156,11 @@ class ResearchDomain:
 
 @dataclass(frozen=True)
 class PaperRecord:
-    """ResearchMind 论文库中的一篇真实论文。"""
+    """ResearchMind 论文库中的一篇真实论文。
+
+    检索导入的纯元数据论文与 manifest 管理的全文论文共用该模型。缺少全文时
+    ``parse_status`` 会明确标为“仅元数据”，不能当作已完成全文解析。
+    """
 
     paper_id: str
     domain_id: str
@@ -145,6 +176,16 @@ class PaperRecord:
     source: str
     verification_status: str
     created_at: str
+    imported_at: str = field(default="", compare=False)
+    category: str = "待分类"
+    parse_status: str = "仅元数据"
+    analysis_status: str = "未分析"
+    is_deleted: bool = False
+    deleted_at: str = ""
+    normalized_title: str = field(default="", compare=False)
+    normalization_version: str = "v1"
+    import_origin: str = ""
+    is_manifest_managed: bool = True
 
     @property
     def authors_text(self) -> str:
@@ -171,7 +212,11 @@ class PaperAnalysis:
     purpose: tuple[EvidenceRef, ...] = ()
     population: tuple[EvidenceRef, ...] = ()
     methods: tuple[EvidenceRef, ...] = ()
+    interventions: tuple[EvidenceRef, ...] = ()
+    comparators: tuple[EvidenceRef, ...] = ()
+    measures: tuple[EvidenceRef, ...] = ()
     results: tuple[EvidenceRef, ...] = ()
+    statistics: tuple[EvidenceRef, ...] = ()
     conclusions: tuple[EvidenceRef, ...] = ()
     limitations: tuple[EvidenceRef, ...] = ()
     extraction_mode: str = "本地规则提取"
@@ -184,7 +229,11 @@ class PaperAnalysis:
             "purpose",
             "population",
             "methods",
+            "interventions",
+            "comparators",
+            "measures",
             "results",
+            "statistics",
             "conclusions",
             "limitations",
         }
@@ -199,7 +248,11 @@ class PaperAnalysis:
             "purpose",
             "population",
             "methods",
+            "interventions",
+            "comparators",
+            "measures",
             "results",
+            "statistics",
             "conclusions",
             "limitations",
         ):
@@ -215,11 +268,34 @@ class PaperAnalysis:
                 "purpose",
                 "population",
                 "methods",
+                "interventions",
+                "comparators",
+                "measures",
                 "results",
+                "statistics",
                 "conclusions",
                 "limitations",
             )
         )
+
+    def to_dict(self) -> dict[str, Any]:
+        """返回可缓存、可序列化的结构化阅读结果。"""
+
+        return {
+            "paper_id": self.paper_id,
+            "purpose": [item.to_dict() for item in self.purpose],
+            "population": [item.to_dict() for item in self.population],
+            "methods": [item.to_dict() for item in self.methods],
+            "interventions": [item.to_dict() for item in self.interventions],
+            "comparators": [item.to_dict() for item in self.comparators],
+            "measures": [item.to_dict() for item in self.measures],
+            "results": [item.to_dict() for item in self.results],
+            "statistics": [item.to_dict() for item in self.statistics],
+            "conclusions": [item.to_dict() for item in self.conclusions],
+            "limitations": [item.to_dict() for item in self.limitations],
+            "extraction_mode": self.extraction_mode,
+            "status": self.status,
+        }
 
 
 @dataclass(frozen=True)
@@ -240,6 +316,12 @@ class CandidatePaper:
     is_open_access: bool = False
 
     @property
+    def authors_text(self) -> str:
+        """返回适合中文界面展示的作者串。"""
+
+        return "、".join(self.authors) if self.authors else "作者待核对"
+
+    @property
     def has_open_pdf(self) -> bool:
         """只有来源明确标记开放获取且提供 PDF 地址时才允许下载。"""
 
@@ -254,6 +336,8 @@ class Viewpoint:
     stance: str
     supporting_papers: tuple[str, ...]
     evidence: tuple[EvidenceRef, ...]
+    claim_origin: str = "原文摘录"
+    stance_origin: str = "本地规则推断"
 
     def __post_init__(self) -> None:
         if not self.claim.strip():
@@ -274,6 +358,123 @@ class Viewpoint:
             "supporting_papers": list(self.supporting_papers),
             "evidence": [item.to_dict() for item in self.evidence],
             "page_numbers": list(self.page_numbers),
+            "claim_origin": self.claim_origin,
+            "stance_origin": self.stance_origin,
+        }
+
+
+@dataclass(frozen=True)
+class QuestionSynthesis:
+    """一个具体研究问题的论文级证据综合。"""
+
+    question_id: str
+    label: str
+    question: str
+    conclusion: str
+    status: str
+    evidence_certainty: str
+    certainty_reason: str
+    supporting_paper_ids: tuple[str, ...]
+    opposing_paper_ids: tuple[str, ...]
+    inconclusive_paper_ids: tuple[str, ...]
+    representative_evidence: tuple[EvidenceRef, ...]
+    outcome_measures: tuple[str, ...] = ()
+    limitations: tuple[str, ...] = ()
+    analysis_time: str = ""
+    negative_paper_ids: tuple[str, ...] = ()
+    null_paper_ids: tuple[str, ...] = ()
+    mixed_paper_ids: tuple[str, ...] = ()
+    review_status: str = "未审核"
+
+    def __post_init__(self) -> None:
+        if not self.question_id.strip() or not self.question.strip():
+            raise ValueError("研究问题不能为空。")
+        if not self.status.strip():
+            raise ValueError("证据综合状态不能为空。")
+
+    @property
+    def related_paper_count(self) -> int:
+        return len(
+            set(self.supporting_paper_ids)
+            | set(self.opposing_paper_ids)
+            | set(self.inconclusive_paper_ids)
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "question_id": self.question_id,
+            "label": self.label,
+            "question": self.question,
+            "conclusion": self.conclusion,
+            "status": self.status,
+            "evidence_certainty": self.evidence_certainty,
+            "certainty_reason": self.certainty_reason,
+            "supporting_paper_ids": list(self.supporting_paper_ids),
+            "opposing_paper_ids": list(self.opposing_paper_ids),
+            "inconclusive_paper_ids": list(self.inconclusive_paper_ids),
+            "representative_evidence": [
+                item.to_dict() for item in self.representative_evidence
+            ],
+            "outcome_measures": list(self.outcome_measures),
+            "limitations": list(self.limitations),
+            "analysis_time": self.analysis_time,
+            "negative_paper_ids": list(self.negative_paper_ids),
+            "null_paper_ids": list(self.null_paper_ids),
+            "mixed_paper_ids": list(self.mixed_paper_ids),
+            "review_status": self.review_status,
+        }
+
+
+@dataclass(frozen=True)
+class ResearchConflict:
+    """同一研究问题中由论文级结果差异形成的学术争议。"""
+
+    conflict_id: str
+    question_id: str
+    question: str
+    viewpoint_a: str
+    paper_ids_a: tuple[str, ...]
+    evidence_a: tuple[EvidenceRef, ...]
+    viewpoint_b: str
+    paper_ids_b: tuple[str, ...]
+    evidence_b: tuple[EvidenceRef, ...]
+    divergence_reasons: tuple[str, ...]
+    current_conclusion: str
+    unresolved_questions: tuple[str, ...]
+    evidence_certainty: str
+    analysis_time: str = ""
+    review_status: str = "待审核候选"
+    comparability_status: str = "未自动判定，需同结局与干预条件人工复核"
+    significance_note: str = (
+        "仅将正向与负向结果列为候选对立方向；"
+        "未达统计显著不视为方向相反"
+    )
+
+    def __post_init__(self) -> None:
+        if not self.paper_ids_a or not self.paper_ids_b:
+            raise ValueError("争议双方都必须关联真实论文。")
+        if not self.evidence_a or not self.evidence_b:
+            raise ValueError("争议双方都必须提供可定位原文证据。")
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "conflict_id": self.conflict_id,
+            "question_id": self.question_id,
+            "question": self.question,
+            "viewpoint_a": self.viewpoint_a,
+            "paper_ids_a": list(self.paper_ids_a),
+            "evidence_a": [item.to_dict() for item in self.evidence_a],
+            "viewpoint_b": self.viewpoint_b,
+            "paper_ids_b": list(self.paper_ids_b),
+            "evidence_b": [item.to_dict() for item in self.evidence_b],
+            "divergence_reasons": list(self.divergence_reasons),
+            "current_conclusion": self.current_conclusion,
+            "unresolved_questions": list(self.unresolved_questions),
+            "evidence_certainty": self.evidence_certainty,
+            "analysis_time": self.analysis_time,
+            "review_status": self.review_status,
+            "comparability_status": self.comparability_status,
+            "significance_note": self.significance_note,
         }
 
 
@@ -289,6 +490,14 @@ class DebateAnalysis:
     research_gaps: tuple[str, ...]
     consensus_summary: str = "证据不足，暂不能判定学术共识。"
     disagreement_summary: str = "当前证据不足以确认学术分歧。"
+    analysis_mode: str = "本地规则证据归纳"
+    considered_paper_ids: tuple[str, ...] = ()
+    evidence_covered_paper_ids: tuple[str, ...] = ()
+    coverage_note: str = ""
+    question_syntheses: tuple[QuestionSynthesis, ...] = ()
+    conflicts: tuple[ResearchConflict, ...] = ()
+    analysis_time: str = ""
+    engine_version: str = ""
 
     def __post_init__(self) -> None:
         if not self.topic.strip():
@@ -307,6 +516,18 @@ class DebateAnalysis:
             "research_gaps": list(self.research_gaps),
             "consensus_summary": self.consensus_summary,
             "disagreement_summary": self.disagreement_summary,
+            "analysis_mode": self.analysis_mode,
+            "considered_paper_ids": list(self.considered_paper_ids),
+            "evidence_covered_paper_ids": list(
+                self.evidence_covered_paper_ids
+            ),
+            "coverage_note": self.coverage_note,
+            "question_syntheses": [
+                item.to_dict() for item in self.question_syntheses
+            ],
+            "conflicts": [item.to_dict() for item in self.conflicts],
+            "analysis_time": self.analysis_time,
+            "engine_version": self.engine_version,
         }
 
 
@@ -411,10 +632,14 @@ class AssessmentQuestion:
     evidence: tuple[EvidenceRef, ...]
     created_at: str
     scoring_mode: str = "客观题自动评分"
+    explanation: str = ""
+    assessment_module: str = "基础知识理解"
 
     def __post_init__(self) -> None:
         if self.question_type not in QUESTION_TYPES:
             raise ValueError(f"不支持的题型：{self.question_type}")
+        if self.assessment_module not in ASSESSMENT_MODULES:
+            raise ValueError(f"不支持的测评模块：{self.assessment_module}")
         if not self.prompt.strip():
             raise ValueError("题目不能为空。")
         if not self.source_paper_ids:
@@ -455,6 +680,8 @@ class AssessmentQuestion:
             "evidence": [item.to_dict() for item in self.evidence],
             "created_at": self.created_at,
             "scoring_mode": self.scoring_mode,
+            "explanation": self.explanation,
+            "assessment_module": self.assessment_module,
         }
 
 

@@ -1,0 +1,329 @@
+{
+  "generated_at": "2026-11-15T14:55:57+00:00",
+  "historical_status": "旧版项目争议字段已失效，保留原始模型回答供复核",
+  "v5_reanalysis": {
+    "reviewed_at": "2026-11-16",
+    "model_rerun": false,
+    "project_conflict_question_count": 0,
+    "project_statuses": {
+      "question:cardiorespiratory": "一致未观察到显著差异",
+      "question:body-composition": "初步共识",
+      "question:muscular-strength": "一致未观察到显著差异",
+      "question:physical-fitness": "一致未观察到显著差异",
+      "question:mental-health": "一致未观察到显著差异",
+      "question:frequency": "初步共识",
+      "question:intensity": "一致未观察到显著差异"
+    },
+    "baseline_raw_conflict_count": 3,
+    "baseline_cross_paper_positive_vs_negative_count": 0,
+    "conflict_presence_agreement": "7/7",
+    "metric_interpretation": "与当前规则一致，不是准确率",
+    "manual_review_status": "7个问题均待体育科研教师复核",
+    "claim_support_verification_status": "待人工复核"
+  },
+  "model": "deepseek-flash",
+  "domain_id": "domain-510b94048a4c",
+  "experiment_design": "同一组 7 个研究问题与相同 representative evidence；普通大模型单次提示判定，体研智脑使用同题结构化分析。",
+  "research_question_count": 7,
+  "successful_baseline_calls": 7,
+  "failed_baseline_calls": 0,
+  "project_conflict_questions": [
+    "question:body-composition",
+    "question:mental-health",
+    "question:muscular-strength"
+  ],
+  "baseline_traceable_conflict_questions": [
+    "question:cardiorespiratory",
+    "question:mental-health"
+  ],
+  "exact_conflict_overlap": [
+    "question:mental-health"
+  ],
+  "agreement_count": 5,
+  "citation_instances": 9,
+  "invalid_citation_instances": 0,
+  "comparisons": [
+    {
+      "question_id": "question:cardiorespiratory",
+      "question": "体育锻炼与心肺耐力",
+      "project_status": "有一致研究发现",
+      "project_has_conflict": false,
+      "project_certainty": "中等",
+      "project_supporting": 0,
+      "project_opposing": 3,
+      "project_inconclusive": 8,
+      "provided_paper_count": 3,
+      "provided_evidence_count": 3,
+      "baseline_error": "",
+      "baseline_elapsed_seconds": 14.025,
+      "baseline_raw_response": "{\"has_conflict\":true,\"conflict_question\":\"在青少年中，体育锻炼（尤其HIIT/高强度活动）是否能改善心肺耐力（cardiorespiratory fitness/VO2peak）？\",\"viewpoint_a\":\"能改善：学校为基础的HIIT和MICT均显著提高VO2peak，且HIIT增幅显著大于MICT（paper_id=zotero-JIVJ9QC9，E2）。\",\"papers_a\":[\"zotero-JIVJ9QC9\"],\"viewpoint_b\":\"不能显著改善：一年期HIIT式VPA干预未显著改善心肺耐力（paper_id=zotero-U3K42ZLA，E3）。\",\"papers_b\":[\"zotero-U3K42ZLA\"],\"citations\":[\"E2\",\"E3\"],\"confidence\":0.72,\"explanation\":\"两项研究均涉及青少年体育锻炼与心肺耐力，结局均为心肺耐力/VO2peak，但结果方向相反：E2显示显著提高，E3显示无显著改善。差异可能来自人群、干预剂量和依从性，但就提供的证据片段而言存在方向性不一致。\"}",
+      "baseline": {
+        "has_conflict": true,
+        "conflict_question": "在青少年中，体育锻炼（尤其HIIT/高强度活动）是否能改善心肺耐力（cardiorespiratory fitness/VO2peak）？",
+        "viewpoint_a": "能改善：学校为基础的HIIT和MICT均显著提高VO2peak，且HIIT增幅显著大于MICT（paper_id=zotero-JIVJ9QC9，E2）。",
+        "papers_a": [
+          "zotero-JIVJ9QC9"
+        ],
+        "viewpoint_b": "不能显著改善：一年期HIIT式VPA干预未显著改善心肺耐力（paper_id=zotero-U3K42ZLA，E3）。",
+        "papers_b": [
+          "zotero-U3K42ZLA"
+        ],
+        "citations": [
+          "E2",
+          "E3"
+        ],
+        "confidence": 0.72,
+        "explanation": "两项研究均涉及青少年体育锻炼与心肺耐力，结局均为心肺耐力/VO2peak，但结果方向相反：E2显示显著提高，E3显示无显著改善。差异可能来自人群、干预剂量和依从性，但就提供的证据片段而言存在方向性不一致。"
+      },
+      "baseline_has_conflict": true,
+      "baseline_structurally_traceable_conflict": true,
+      "invalid_paper_ids": [],
+      "invalid_evidence_ids": [],
+      "agreement_with_project": false,
+      "baseline_paper_sets_disjoint": true,
+      "baseline_same_paper_conflict": false,
+      "traceable_agreement_with_project": false
+    },
+    {
+      "question_id": "question:body-composition",
+      "question": "体育锻炼与身体成分",
+      "project_status": "存在争议",
+      "project_has_conflict": true,
+      "project_certainty": "低",
+      "project_supporting": 3,
+      "project_opposing": 2,
+      "project_inconclusive": 17,
+      "provided_paper_count": 6,
+      "provided_evidence_count": 6,
+      "baseline_error": "",
+      "baseline_elapsed_seconds": 18.605,
+      "baseline_raw_response": "{\"has_conflict\":true,\"conflict_question\":\"学校环境中的AVGs（主动视频游戏）对儿童青少年身体成分（BMI/体脂率）的影响是否存在争议？\",\"viewpoint_a\":\"此前研究显示AVGs可显著降低儿童青少年BMI和体脂率（BF%）。\",\"papers_a\":[\"zotero-NEYC7LDS\"],\"viewpoint_b\":\"当前网络Meta分析发现学校环境中的AVGs对参与者身体测量和身体成分无显著影响。\",\"papers_b\":[\"zotero-NEYC7LDS\"],\"citations\":[\"E2\"],\"confidence\":0.78,\"explanation\":\"E2明确报告了同一结局和同一方向上的不一致：此前研究显示AVGs显著降低BMI和BF%，而当前NMA发现学校环境中AVGs对身体测量/身体成分无显著影响。其他证据多支持运动改善身体成分，但未提供针对AVGs的独立相反结果；因此争议判定主要依据E2中记录的不一致。\"}",
+      "baseline": {
+        "has_conflict": true,
+        "conflict_question": "学校环境中的AVGs（主动视频游戏）对儿童青少年身体成分（BMI/体脂率）的影响是否存在争议？",
+        "viewpoint_a": "此前研究显示AVGs可显著降低儿童青少年BMI和体脂率（BF%）。",
+        "papers_a": [
+          "zotero-NEYC7LDS"
+        ],
+        "viewpoint_b": "当前网络Meta分析发现学校环境中的AVGs对参与者身体测量和身体成分无显著影响。",
+        "papers_b": [
+          "zotero-NEYC7LDS"
+        ],
+        "citations": [
+          "E2"
+        ],
+        "confidence": 0.78,
+        "explanation": "E2明确报告了同一结局和同一方向上的不一致：此前研究显示AVGs显著降低BMI和BF%，而当前NMA发现学校环境中AVGs对身体测量/身体成分无显著影响。其他证据多支持运动改善身体成分，但未提供针对AVGs的独立相反结果；因此争议判定主要依据E2中记录的不一致。"
+      },
+      "baseline_has_conflict": true,
+      "baseline_structurally_traceable_conflict": false,
+      "invalid_paper_ids": [],
+      "invalid_evidence_ids": [],
+      "agreement_with_project": true,
+      "baseline_paper_sets_disjoint": false,
+      "baseline_same_paper_conflict": true,
+      "traceable_agreement_with_project": false
+    },
+    {
+      "question_id": "question:muscular-strength",
+      "question": "体育锻炼与肌肉力量",
+      "project_status": "存在争议",
+      "project_has_conflict": true,
+      "project_certainty": "低",
+      "project_supporting": 1,
+      "project_opposing": 4,
+      "project_inconclusive": 21,
+      "provided_paper_count": 5,
+      "provided_evidence_count": 5,
+      "baseline_error": "",
+      "baseline_elapsed_seconds": 5.041,
+      "baseline_raw_response": "{\"has_conflict\":false,\"conflict_question\":\"体育锻炼与肌肉力量是否存在真实学术争议？\",\"viewpoint_a\":\"\",\"papers_a\":[],\"viewpoint_b\":\"\",\"papers_b\":[],\"citations\":[],\"confidence\":\"high\",\"explanation\":\"所提供的证据中，E4涉及下肢力量，但仅报告不同训练模式的效果大小差异，并未给出与另一研究相反的结论；E2涉及下肢爆发力，E1、E3、E5主要涉及速度、冲刺、敏捷、爆发力或柔韧性等结局，均不能与E4构成同一结局、同一方向比较下的相反结果。因此，依据给定片段无法证明存在真实学术争议。\"}",
+      "baseline": {
+        "has_conflict": false,
+        "conflict_question": "体育锻炼与肌肉力量是否存在真实学术争议？",
+        "viewpoint_a": "",
+        "papers_a": [],
+        "viewpoint_b": "",
+        "papers_b": [],
+        "citations": [],
+        "confidence": "high",
+        "explanation": "所提供的证据中，E4涉及下肢力量，但仅报告不同训练模式的效果大小差异，并未给出与另一研究相反的结论；E2涉及下肢爆发力，E1、E3、E5主要涉及速度、冲刺、敏捷、爆发力或柔韧性等结局，均不能与E4构成同一结局、同一方向比较下的相反结果。因此，依据给定片段无法证明存在真实学术争议。"
+      },
+      "baseline_has_conflict": false,
+      "baseline_structurally_traceable_conflict": false,
+      "invalid_paper_ids": [],
+      "invalid_evidence_ids": [],
+      "agreement_with_project": false,
+      "baseline_paper_sets_disjoint": false,
+      "baseline_same_paper_conflict": false,
+      "traceable_agreement_with_project": false
+    },
+    {
+      "question_id": "question:physical-fitness",
+      "question": "体育锻炼与身体素质",
+      "project_status": "有一致研究发现",
+      "project_has_conflict": false,
+      "project_certainty": "中等",
+      "project_supporting": 0,
+      "project_opposing": 2,
+      "project_inconclusive": 22,
+      "provided_paper_count": 3,
+      "provided_evidence_count": 3,
+      "baseline_error": "",
+      "baseline_elapsed_seconds": 6.907,
+      "baseline_raw_response": "{\n  \"has_conflict\": false,\n  \"conflict_question\": \"在相同结局和相同方向比较下，体育锻炼是否改善身体素质？\",\n  \"viewpoint_a\": \"\",\n  \"papers_a\": [],\n  \"viewpoint_b\": \"\",\n  \"papers_b\": [],\n  \"citations\": [],\n  \"confidence\": \"high\",\n  \"explanation\": \"E1报告VR/体育干预在超重青少年中改善体能；E3提示体育课嵌入健身干预对部分体能维度有小幅有利效果；E2仅报告高强度VPA未显著改善心肺适能。三项证据在结局、人群和干预方式上并不构成同一结局的同方向相反结果，且E3对速度的无效结果也没有相反证据，因此不构成真实学术争议。\"\n}",
+      "baseline": {
+        "has_conflict": false,
+        "conflict_question": "在相同结局和相同方向比较下，体育锻炼是否改善身体素质？",
+        "viewpoint_a": "",
+        "papers_a": [],
+        "viewpoint_b": "",
+        "papers_b": [],
+        "citations": [],
+        "confidence": "high",
+        "explanation": "E1报告VR/体育干预在超重青少年中改善体能；E3提示体育课嵌入健身干预对部分体能维度有小幅有利效果；E2仅报告高强度VPA未显著改善心肺适能。三项证据在结局、人群和干预方式上并不构成同一结局的同方向相反结果，且E3对速度的无效结果也没有相反证据，因此不构成真实学术争议。"
+      },
+      "baseline_has_conflict": false,
+      "baseline_structurally_traceable_conflict": false,
+      "invalid_paper_ids": [],
+      "invalid_evidence_ids": [],
+      "agreement_with_project": true,
+      "baseline_paper_sets_disjoint": false,
+      "baseline_same_paper_conflict": false,
+      "traceable_agreement_with_project": true
+    },
+    {
+      "question_id": "question:mental-health",
+      "question": "体育锻炼与心理健康",
+      "project_status": "存在争议",
+      "project_has_conflict": true,
+      "project_certainty": "低",
+      "project_supporting": 1,
+      "project_opposing": 2,
+      "project_inconclusive": 22,
+      "provided_paper_count": 3,
+      "provided_evidence_count": 3,
+      "baseline_error": "",
+      "baseline_elapsed_seconds": 19.282,
+      "baseline_raw_response": "{\"has_conflict\":true,\"conflict_question\":\"体育锻炼是否改善青少年心理健康/心理福祉？\",\"viewpoint_a\":\"体育锻炼或运动干预可改善青少年心理福祉/心理健康；E2报告8周运动干预后心理福祉改善，E1从系统综述角度支持青少年运动参与与well-being改善、ill-being减少相关。\",\"papers_a\":[\"zotero-B7K7UC8W\",\"zotero-IPZI3NA4\"],\"viewpoint_b\":\"高强度体育锻炼干预未显著改善青少年心理健康；E3报告HIIT式VPA干预对心理健康等结局均无显著改善（p>0.05）。\",\"papers_b\":[\"zotero-U3K42ZLA\"],\"citations\":[\"E2\",\"E1\",\"E3\"],\"confidence\":0.74,\"explanation\":\"E2与E3均为青少年运动干预，且分别报告心理福祉改善与心理健康无显著改善，方向相反，可构成广义心理健康/心理福祉结局上的争议；但E2为超重青少年VR/实体运动干预，E3为HIIT式VPA干预，且结局标签分别为psychological well-being与mental health，并非完全同一操作化结局，故置信度中等。\"}",
+      "baseline": {
+        "has_conflict": true,
+        "conflict_question": "体育锻炼是否改善青少年心理健康/心理福祉？",
+        "viewpoint_a": "体育锻炼或运动干预可改善青少年心理福祉/心理健康；E2报告8周运动干预后心理福祉改善，E1从系统综述角度支持青少年运动参与与well-being改善、ill-being减少相关。",
+        "papers_a": [
+          "zotero-B7K7UC8W",
+          "zotero-IPZI3NA4"
+        ],
+        "viewpoint_b": "高强度体育锻炼干预未显著改善青少年心理健康；E3报告HIIT式VPA干预对心理健康等结局均无显著改善（p>0.05）。",
+        "papers_b": [
+          "zotero-U3K42ZLA"
+        ],
+        "citations": [
+          "E2",
+          "E1",
+          "E3"
+        ],
+        "confidence": 0.74,
+        "explanation": "E2与E3均为青少年运动干预，且分别报告心理福祉改善与心理健康无显著改善，方向相反，可构成广义心理健康/心理福祉结局上的争议；但E2为超重青少年VR/实体运动干预，E3为HIIT式VPA干预，且结局标签分别为psychological well-being与mental health，并非完全同一操作化结局，故置信度中等。"
+      },
+      "baseline_has_conflict": true,
+      "baseline_structurally_traceable_conflict": true,
+      "invalid_paper_ids": [],
+      "invalid_evidence_ids": [],
+      "agreement_with_project": true,
+      "baseline_paper_sets_disjoint": true,
+      "baseline_same_paper_conflict": false,
+      "traceable_agreement_with_project": true
+    },
+    {
+      "question_id": "question:frequency",
+      "question": "运动频率与健康效果",
+      "project_status": "初步共识",
+      "project_has_conflict": false,
+      "project_certainty": "中等",
+      "project_supporting": 2,
+      "project_opposing": 0,
+      "project_inconclusive": 17,
+      "provided_paper_count": 3,
+      "provided_evidence_count": 3,
+      "baseline_error": "",
+      "baseline_elapsed_seconds": 4.097,
+      "baseline_raw_response": "{\"has_conflict\":false,\"conflict_question\":\"运动频率与健康效果\",\"viewpoint_a\":\"\",\"papers_a\":[],\"viewpoint_b\":\"\",\"papers_b\":[],\"citations\":[\"E1\",\"E2\",\"E3\"],\"confidence\":0.95,\"explanation\":\"未发现针对同一结局、同一方向比较的运动频率与健康效果相反结果。E1仅说明每周≤3次并发训练未产生干扰效应并可改善心肺耐力、维持力量；E2两组均为每周3次，比较Schroth与核心稳定训练，不涉及频率与健康效果的相反结论；E3报告每周频率与各结局效应量无清晰线性关联，且其负向结果针对干预时长与下肢爆发力，并非运动频率的相反证据。因此证据不足以判定存在真实学术争议。\"}",
+      "baseline": {
+        "has_conflict": false,
+        "conflict_question": "运动频率与健康效果",
+        "viewpoint_a": "",
+        "papers_a": [],
+        "viewpoint_b": "",
+        "papers_b": [],
+        "citations": [
+          "E1",
+          "E2",
+          "E3"
+        ],
+        "confidence": 0.95,
+        "explanation": "未发现针对同一结局、同一方向比较的运动频率与健康效果相反结果。E1仅说明每周≤3次并发训练未产生干扰效应并可改善心肺耐力、维持力量；E2两组均为每周3次，比较Schroth与核心稳定训练，不涉及频率与健康效果的相反结论；E3报告每周频率与各结局效应量无清晰线性关联，且其负向结果针对干预时长与下肢爆发力，并非运动频率的相反证据。因此证据不足以判定存在真实学术争议。"
+      },
+      "baseline_has_conflict": false,
+      "baseline_structurally_traceable_conflict": false,
+      "invalid_paper_ids": [],
+      "invalid_evidence_ids": [],
+      "agreement_with_project": true,
+      "baseline_paper_sets_disjoint": false,
+      "baseline_same_paper_conflict": false,
+      "traceable_agreement_with_project": true
+    },
+    {
+      "question_id": "question:intensity",
+      "question": "运动强度与健康效果",
+      "project_status": "有一致研究发现",
+      "project_has_conflict": false,
+      "project_certainty": "中等",
+      "project_supporting": 0,
+      "project_opposing": 2,
+      "project_inconclusive": 21,
+      "provided_paper_count": 3,
+      "provided_evidence_count": 3,
+      "baseline_error": "",
+      "baseline_elapsed_seconds": 3.501,
+      "baseline_raw_response": "{\"has_conflict\":false,\"conflict_question\":\"\",\"viewpoint_a\":\"\",\"papers_a\":[],\"viewpoint_b\":\"\",\"papers_b\":[],\"citations\":[],\"confidence\":0.93,\"explanation\":\"提供的证据未在同一结局、同一方向比较下报告相反结果。E2 研究 HIIT 式剧烈身体活动对体能、认知和心理健康的影响，结果为不显著；E3 的结局是 MVPA 行为，不是相同的健康效果结局，且显示部分学校干预可提高 MVPA；E1 讨论同期训练安排并提及运动强度影响需进一步验证，未提供与 E2 相反的健康效果结果。因此无法判定存在真实学术争议。\"}",
+      "baseline": {
+        "has_conflict": false,
+        "conflict_question": "",
+        "viewpoint_a": "",
+        "papers_a": [],
+        "viewpoint_b": "",
+        "papers_b": [],
+        "citations": [],
+        "confidence": 0.93,
+        "explanation": "提供的证据未在同一结局、同一方向比较下报告相反结果。E2 研究 HIIT 式剧烈身体活动对体能、认知和心理健康的影响，结果为不显著；E3 的结局是 MVPA 行为，不是相同的健康效果结局，且显示部分学校干预可提高 MVPA；E1 讨论同期训练安排并提及运动强度影响需进一步验证，未提供与 E2 相反的健康效果结果。因此无法判定存在真实学术争议。"
+      },
+      "baseline_has_conflict": false,
+      "baseline_structurally_traceable_conflict": false,
+      "invalid_paper_ids": [],
+      "invalid_evidence_ids": [],
+      "agreement_with_project": true,
+      "baseline_paper_sets_disjoint": false,
+      "baseline_same_paper_conflict": false,
+      "traceable_agreement_with_project": true
+    }
+  ],
+  "limitations": [
+    "单次调用，不做统计显著性推断。",
+    "体研智脑结果是规则分析结果，不是人工金标准。",
+    "普通大模型使用的是系统选出的 representative evidence 子集，不代表它在全量原始 PDF 上的上限。"
+  ],
+  "baseline_raw_conflict_questions": [
+    "question:body-composition",
+    "question:cardiorespiratory",
+    "question:mental-health"
+  ],
+  "raw_conflict_overlap": [
+    "question:body-composition",
+    "question:mental-health"
+  ],
+  "same_paper_conflict_questions": [
+    "question:body-composition"
+  ],
+  "traceable_agreement_count": 4
+}

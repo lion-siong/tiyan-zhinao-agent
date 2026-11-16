@@ -33,6 +33,10 @@ class CollectionResult:
     candidates: tuple[CandidatePaper, ...]
     warnings: tuple[str, ...]
     date_from: str
+    date_to: str
+
+
+LITERATURE_SOURCES = ("自动", "OpenAlex", "Crossref")
 
 
 class LiteratureCollector:
@@ -47,6 +51,8 @@ class LiteratureCollector:
         *,
         limit: int = 10,
         date_from: str | None = None,
+        date_to: str | None = None,
+        source: str = "自动",
     ) -> CollectionResult:
         """检索真实论文元数据，并按 DOI/题名去重。"""
 
@@ -56,27 +62,52 @@ class LiteratureCollector:
         if not 1 <= limit <= 25:
             raise LiteratureCollectionError("单次检索数量必须在 1 到 25 之间。")
         start_date = date_from or self.config.researchmind_date_from
+        end_date = date_to or date.today().isoformat()
+        selected_source = source.strip() or "自动"
+        if selected_source not in LITERATURE_SOURCES:
+            raise LiteratureCollectionError(
+                "文献来源必须是“自动”“OpenAlex”或“Crossref”。"
+            )
         _validate_iso_date(start_date)
+        _validate_iso_date(end_date)
+        if start_date > end_date:
+            raise LiteratureCollectionError("起始日期不能晚于结束日期。")
 
         warnings: list[str] = []
-        try:
-            candidates = _search_openalex(
-                clean_query,
-                limit=limit,
-                date_from=start_date,
-                mailto=self.config.openalex_mailto,
-                timeout=self.config.llm_timeout_seconds,
-            )
-            source = "OpenAlex"
-        except LiteratureCollectionError as exc:
-            warnings.append(f"OpenAlex 检索失败，已尝试 Crossref：{exc}")
+        if selected_source == "Crossref":
             candidates = _search_crossref(
                 clean_query,
                 limit=limit,
                 date_from=start_date,
+                date_to=end_date,
                 timeout=self.config.llm_timeout_seconds,
             )
-            source = "Crossref"
+            actual_source = "Crossref"
+        else:
+            try:
+                candidates = _search_openalex(
+                    clean_query,
+                    limit=limit,
+                    date_from=start_date,
+                    date_to=end_date,
+                    mailto=self.config.openalex_mailto,
+                    timeout=self.config.llm_timeout_seconds,
+                )
+                actual_source = "OpenAlex"
+            except LiteratureCollectionError as exc:
+                if selected_source == "OpenAlex":
+                    raise LiteratureCollectionError(
+                        f"OpenAlex 检索失败：{exc}"
+                    ) from exc
+                warnings.append(f"OpenAlex 检索失败，已尝试 Crossref：{exc}")
+                candidates = _search_crossref(
+                    clean_query,
+                    limit=limit,
+                    date_from=start_date,
+                    date_to=end_date,
+                    timeout=self.config.llm_timeout_seconds,
+                )
+                actual_source = "Crossref"
 
         deduplicated = _deduplicate_candidates(candidates)
         if not deduplicated:
@@ -84,11 +115,12 @@ class LiteratureCollector:
                 "来源没有返回可核验的论文元数据，未向论文库写入任何记录。"
             )
         return CollectionResult(
-            source=source,
+            source=actual_source,
             query=clean_query,
             candidates=deduplicated,
             warnings=tuple(warnings),
             date_from=start_date,
+            date_to=end_date,
         )
 
     def download_open_pdf(
@@ -152,13 +184,14 @@ def _search_openalex(
     date_from: str,
     mailto: str,
     timeout: int,
+    date_to: str | None = None,
 ) -> tuple[CandidatePaper, ...]:
-    end_date = date.today().isoformat()
+    end_date = date_to or date.today().isoformat()
     parameters = {
         "search": query,
         "filter": (
             f"from_publication_date:{date_from},"
-            f"to_publication_date:{end_date}"
+            f"to_publication_date:{date_to}"
         ),
         "sort": "relevance_score:desc",
         "per-page": str(limit),
@@ -225,10 +258,15 @@ def _search_crossref(
     limit: int,
     date_from: str,
     timeout: int,
+    date_to: str | None = None,
 ) -> tuple[CandidatePaper, ...]:
+    end_date = date_to or date.today().isoformat()
     parameters = {
         "query": query,
-        "filter": f"from-pub-date:{date_from},type:journal-article",
+        "filter": (
+            f"from-pub-date:{date_from},"
+            f"until-pub-date:{date_to},type:journal-article"
+        ),
         "rows": str(limit),
         "select": (
             "DOI,title,author,published,container-title,abstract,"

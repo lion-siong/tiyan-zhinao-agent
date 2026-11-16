@@ -21,7 +21,10 @@ __pycache__/
 *$py.class
 .pytest_cache/
 .pytest-temp-*/
+.pytest-tmp-*/
 .pytest_tmp/
+.test-tmp-*/
+.submission-check-*/
 .mypy_cache/
 .ruff_cache/
 .coverage
@@ -29,6 +32,8 @@ coverage.xml
 htmlcov/
 .cache/
 .tmp/
+tmp/
+backups/
 
 # 编辑器、系统临时文件与日志
 .vscode/
@@ -41,6 +46,7 @@ Thumbs.db
 *.tmp
 *.restore
 *.log
+.sl-*.txt
 
 # 数据库、用户学习记录和运行时数据
 *.db
@@ -66,9 +72,28 @@ data/*
 # 论文 PDF 是否可公开再分发必须逐篇核对许可，默认不进入 Git。
 *.pdf
 !提交材料/体研智脑Agent_技术报告.pdf
+!docs/technical_document/*.pdf
 knowledge_base/**
 !knowledge_base/README.md
 !knowledge_base/manifest.json
+!knowledge_base/framework.json
+!knowledge_base/index/
+!knowledge_base/index/evidence_chunks.json
+!knowledge_base/pdfs/
+!knowledge_base/pdfs/aps_3081402.pdf
+!knowledge_base/pdfs/ass_2401349.pdf
+!knowledge_base/pdfs/gao-2025-exercise-self-efficacy.pdf
+!knowledge_base/pdfs/huang-2023-social-ecological.pdf
+!knowledge_base/pdfs/liang-2026-app-pe.pdf
+!knowledge_base/pdfs/niu-2024-taichi-fitness.pdf
+!knowledge_base/pdfs/sheng-2023-peer-support.pdf
+!knowledge_base/pdfs/sun-2025-aerobic-fitness.pdf
+!knowledge_base/pdfs/wang-2024-blended-pe.pdf
+!knowledge_base/pdfs/xiong-2025-social-support.pdf
+!knowledge_base/pdfs/zhang-2024-health-beliefs.pdf
+!knowledge_base/pdfs/zhang-2025-predictors-pa.pdf
+knowledge_base_adolescent/**
+!knowledge_base_adolescent/README.md
 
 # 用户上传、输出和模型缓存
 outputs/*
@@ -87,3 +112,16 @@ data/user_papers/
 build/
 dist/
 *.egg-info/
+
+# 本地验收快照、备份和批量论文页面渲染
+docs/technical_document_backups/
+docs/backups/
+research/test-temp/
+research/backups/
+research/zotero/
+research/reports/
+research/experiments/
+research/acceptance-linkage/
+research/reports/analysis-corpus/
+research/reports/first-batch-pages/
+research/reports/second-batch-pages/

@@ -330,6 +330,51 @@ def test_agent_falls_back_to_arxiv_when_semantic_scholar_fails() -> None:
     assert result.papers[0].title == "Arxiv result"
 
 
+def test_agent_falls_back_to_openalex_when_ss_and_arxiv_unavailable() -> None:
+    from dataclasses import replace
+
+    fallback_paper = replace(
+        _paper(title="OpenAlex result", doi="10.1234/oa"),
+        source="OpenAlex",
+    )
+    agent = LiteratureResearchAgent(
+        Settings.from_env({"OPENAI_API_KEY": ""}),
+        llm_service=LLMService(
+            Settings.from_env({"OPENAI_API_KEY": ""})
+        ),
+        search_tool=lambda query, limit: (_ for _ in ()).throw(
+            SemanticScholarError("429 rate limited")
+        ),
+        preprint_tool=lambda query, limit: (),
+        fallback_tool=lambda query, limit: (fallback_paper,),
+    )
+
+    result = agent.run("exercise fitness", limit=3)
+
+    assert result.success is True
+    assert result.source == "OpenAlex"
+    assert result.papers[0].title == "OpenAlex result"
+
+
+def test_arxiv_uses_independent_timeout_setting(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_urlopen(request, timeout):
+        captured["timeout"] = timeout
+        return _Response("<feed xmlns='http://www.w3.org/2005/Atom'></feed>")
+
+    monkeypatch.setattr(
+        "tools.arxiv_search.urllib.request.urlopen", fake_urlopen
+    )
+    config = Settings.from_env({"ARXIV_TIMEOUT_SECONDS": "7"})
+
+    arxiv_search("open preprint", 1, config=config)
+
+    assert captured["timeout"] == 7
+
+
 class _FixedUserPaperEncoder:
     """用户论文 Chroma 测试使用的确定性编码器。"""
 
@@ -516,7 +561,7 @@ def test_literature_research_page_loads_without_network_request() -> None:
 
     assert not test_app.exception
     assert any(
-        "公开来源仅限 Semantic Scholar 和 arXiv" in item.value
+        "OpenAlex" in item.value and "PubMed" in item.value
         for item in test_app.info
     )
 

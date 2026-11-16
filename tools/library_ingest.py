@@ -57,6 +57,7 @@ class ImportedDocument:
     document_id: str
     file_name: str
     title: str
+    original_file_name: str = ""
 
 
 @dataclass(frozen=True)
@@ -81,6 +82,7 @@ class _PreparedPDF:
     """通过校验、准备写入文献库的 PDF。"""
 
     metadata: PDFMetadata
+    original_file_name: str
     final_file_name: str
     data: bytes
 
@@ -208,6 +210,7 @@ def ingest_pdf_files(
         prepared.append(
             _PreparedPDF(
                 metadata=metadata,
+                original_file_name=display_name,
                 final_file_name=final_file_name,
                 data=incoming.data,
             )
@@ -270,6 +273,7 @@ def ingest_pdf_files(
             document_id=item.metadata.document_id,
             file_name=item.final_file_name,
             title=item.metadata.title,
+            original_file_name=item.original_file_name,
         )
         for item in prepared
     )
@@ -344,11 +348,14 @@ def remove_library_documents(
     base_dir: Path | str | None = None,
     *,
     auto_vector_sync: bool = True,
+    allow_missing: bool = False,
 ) -> RemovalResult:
     """从项目论文库永久删除指定 PDF，并重建全部派生数据。
 
     删除前会保存清单、证据索引、研究框架和 PDF 的快照。任何一步失败时，
     已修改的文件都会恢复，避免只删掉页面记录或只删掉 PDF 的半完成状态。
+    ``allow_missing`` 仅供已经完成来源校验的调用方使用，用于清理检索导入
+    论文的独占 PDF；这类文件可能只存在于 SQLite，而不在 manifest 中。
     """
 
     root = _resolve_root(base_dir)
@@ -384,7 +391,7 @@ def remove_library_documents(
 
     found_names = {str(item["file_name"]) for item in selected}
     missing_names = sorted(requested_names - found_names)
-    if missing_names:
+    if missing_names and not allow_missing:
         raise KnowledgeBaseError(
             "以下论文不在当前文献清单中：" + "、".join(missing_names)
         )
@@ -403,7 +410,7 @@ def remove_library_documents(
             if (pdf_dir / name).is_file()
             else None
         )
-        for name in found_names
+        for name in (found_names | set(missing_names))
     }
 
     try:

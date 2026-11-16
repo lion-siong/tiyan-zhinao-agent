@@ -135,17 +135,18 @@ def test_home_card_opens_workbench() -> None:
     assert test_app.session_state["navigation"] == "科研工作台"
 
 
-def test_workbench_page_accepts_home_prefill() -> None:
+def test_workbench_page_accepts_home_prefill_and_searches_safely() -> None:
     from streamlit.testing.v1 import AppTest
 
     app_path = PROJECT_ROOT / "app.py"
     test_app = AppTest.from_file(app_path, default_timeout=60).run()
-    test_app.session_state["workbench_prefill"] = TOPIC
+    prefill = "青少年体育锻炼干预与体质健康水平的关系研究"
+    test_app.session_state["workbench_prefill"] = prefill
     test_app.session_state["navigation"] = "科研工作台"
     test_app.run()
 
     assert not test_app.exception
-    assert test_app.text_area(key="workbench_task_input").value == TOPIC
+    assert test_app.text_area(key="workbench_task_input").value == prefill
     test_app.form_submit_button[0].click().run()
 
     assert not test_app.exception
@@ -153,4 +154,13 @@ def test_workbench_page_accepts_home_prefill() -> None:
 
     assert not test_app.exception
     assert test_app.session_state["workbench_evidence_searched"] is True
-    assert test_app.session_state["workbench_evidence_hits"]
+    hits = test_app.session_state["workbench_evidence_hits"]
+    assert isinstance(hits, tuple)
+    if hits:
+        assert all(hit.quote.strip() for hit in hits)
+        assert all(hit.citation.strip() for hit in hits)
+    else:
+        assert any(
+            "证据不足，暂不能判断" in warning.value
+            for warning in test_app.warning
+        )

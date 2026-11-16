@@ -19,6 +19,34 @@ from services.vector_service import (
 from tools.document_chunker import EvidenceChunk
 
 
+DEFAULT_RETRIEVAL_COUNT = 5
+MIN_RETRIEVAL_COUNT = 1
+MAX_RETRIEVAL_COUNT = 10
+
+
+def normalize_retrieval_count(value: object) -> int:
+    """将外部传入的检索数量规范为 1 到 10 的整数。"""
+
+    if value is None or isinstance(value, bool):
+        return DEFAULT_RETRIEVAL_COUNT
+    if isinstance(value, str):
+        value = value.strip()
+        if not value:
+            return DEFAULT_RETRIEVAL_COUNT
+
+    try:
+        numeric_value = float(value)
+    except (TypeError, ValueError, OverflowError):
+        return DEFAULT_RETRIEVAL_COUNT
+    if (
+        not math.isfinite(numeric_value)
+        or not numeric_value.is_integer()
+        or not MIN_RETRIEVAL_COUNT <= numeric_value <= MAX_RETRIEVAL_COUNT
+    ):
+        return DEFAULT_RETRIEVAL_COUNT
+    return int(numeric_value)
+
+
 @dataclass(frozen=True)
 class RetrievedEvidence:
     """检索结果及匹配分数。"""
@@ -163,7 +191,11 @@ class HybridEvidenceIndex:
                 )
             return self.lexical_index.search(question, top_k=top_k)
 
-        candidate_limit = min(max(top_k * 4, 10), len(self.chunks))
+        candidate_limit = min(
+            max(top_k * 4, 10),
+            MAX_RETRIEVAL_COUNT,
+            len(self.chunks),
+        )
         lexical_results = self.lexical_index.search(
             question,
             top_k=candidate_limit,
@@ -254,11 +286,19 @@ class EvidenceRAGService:
         self,
         question: str,
         *,
-        top_k: int = 5,
+        top_k: int = DEFAULT_RETRIEVAL_COUNT,
         use_llm: bool = False,
         retrieval_mode: str | None = None,
     ) -> EvidenceAnswer:
         """检索证据并回答；任何路径都不会在证据不足时强行生成结论。"""
+
+        if not self.index.chunks:
+            return EvidenceAnswer(
+                answer="",
+                mode="证据库为空",
+                success=False,
+                message="当前证据库中没有论文，请先导入论文后再检索。",
+            )
 
         clean_question = question.strip()
         if not clean_question:
@@ -269,16 +309,28 @@ class EvidenceRAGService:
                 message="问题不能为空。",
             )
 
+        safe_top_k = normalize_retrieval_count(top_k)
         retrieval_warning = ""
-        if isinstance(self.index, HybridEvidenceIndex):
-            evidence = self.index.search(
-                clean_question,
-                top_k=top_k,
-                mode=retrieval_mode or settings.rag_retrieval_mode,
+        try:
+            if isinstance(self.index, HybridEvidenceIndex):
+                evidence = self.index.search(
+                    clean_question,
+                    top_k=safe_top_k,
+                    mode=retrieval_mode or settings.rag_retrieval_mode,
+                )
+                retrieval_warning = self.index.last_warning
+            else:
+                evidence = self.index.search(
+                    clean_question,
+                    top_k=safe_top_k,
+                )
+        except Exception as exc:
+            return EvidenceAnswer(
+                answer="",
+                mode="检索失败",
+                success=False,
+                message=f"证据检索失败：{exc}",
             )
-            retrieval_warning = self.index.last_warning
-        else:
-            evidence = self.index.search(clean_question, top_k=top_k)
         if not evidence:
             return EvidenceAnswer(
                 answer=(
@@ -290,11 +342,20 @@ class EvidenceRAGService:
             )
 
         if use_llm:
-            return self._answer_with_llm(
-                clean_question,
-                evidence,
-                retrieval_warning=retrieval_warning,
-            )
+            try:
+                return self._answer_with_llm(
+                    clean_question,
+                    evidence,
+                    retrieval_warning=retrieval_warning,
+                )
+            except Exception as exc:
+                return EvidenceAnswer(
+                    answer="",
+                    mode="回答失败",
+                    evidence=evidence,
+                    success=False,
+                    message=f"基于证据生成回答失败：{exc}",
+                )
         message = "未调用真实大模型，仅展示检索到的原文片段。"
         if retrieval_warning:
             message = f"{retrieval_warning} {message}"
