@@ -1,9 +1,8 @@
 # Assets
 
-比赛用架构图、流程图和功能截图位于：
+比赛展示用功能截图位于：
 
-- `docs/technical_document/figures/`：Mermaid 源文件和渲染图。
-- `docs/technical_document/evidence/`：真实运行截图、测试输出和导出证据。
-- `docs/technical_document/evidence/archive/`：历史截图、旧测试记录和旧导出。
+- `assets/screenshots/`：README 使用的真实系统运行截图。
 
-论文 PDF、数据库和用户上传文件不进入公开源码包。
+完整技术文档、图表源文件、旧测试记录和导出证据作为独立比赛材料保存，
+不进入 GitHub 源代码仓库。论文 PDF、数据库和用户上传文件也不进入公开源码包。

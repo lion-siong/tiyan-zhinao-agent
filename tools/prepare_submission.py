@@ -23,7 +23,6 @@ ROOT_FILES = (
     "app.py",
     "config.py",
     "main.py",
-    "技术文档.md",
 )
 
 INCLUDED_DIRECTORIES = (
@@ -48,6 +47,7 @@ IGNORED_NAMES = {
     "backups",
     "archive",
     "old-submission-materials",
+    "technical_document",
     "technical_document_backups",
     "pytest-full-verbose.txt",
     "pytest-results.xml",

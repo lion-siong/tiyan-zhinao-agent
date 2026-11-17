@@ -62,8 +62,8 @@ tools.security_audit
 PYTEST_EXIT_CODE=0
 ```
 
-警告为 Streamlit 对 NumPy `timedelta` 的弃用提示，不影响当前功能。原始输出与 JUnit XML 位于
-`docs/technical_document/evidence/tests/pytest-v5-*`。
+警告为 Streamlit 对 NumPy `timedelta` 的弃用提示，不影响当前功能。原始输出与
+JUnit XML 随独立技术文档材料保存，不进入 GitHub 源代码仓库。
 
 ### 启动
 
@@ -125,7 +125,6 @@ review_count: 1
 - `demo/README.md`
 - `assets/README.md`
 - `tools/prepare_submission.py`
-- `docs/technical_document/体研智脑Agent_技术文档.pdf`
 
 ## 5. 仍需比赛前人工确认
 
@@ -149,7 +148,7 @@ git commit -m "feat: complete resilient multi-source literature retrieval"
 git add agents researchmind services tools tests app.py config.py main.py
 git commit -m "feat: finalize evidence-driven research workflow"
 
-git add README.md LICENSE assets demo docs 技术文档.md 提交材料/README.md
+git add README.md LICENSE assets demo docs
 git commit -m "docs: prepare competition submission repository"
 ```
 

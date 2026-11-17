@@ -339,42 +339,41 @@ demo/
 
 ### 首页
 
-![首页](docs/technical_document/evidence/01-home.png)
+![首页](assets/screenshots/01-home.png)
 
 展示科研流程入口、当前论文库和模型状态。
 
 ### 文献自动采集
 
-![文献自动采集](docs/technical_document/evidence/03-literature-collection.png)
+![文献自动采集](assets/screenshots/03-literature-collection.png)
 
 展示 Zotero 本地同步、五类公开检索来源和开放 PDF 开关。
 
 ### 学术分歧分析
 
-![学术分歧分析](docs/technical_document/evidence/05-academic-debate.png)
+![学术分歧分析](assets/screenshots/05-academic-debate.png)
 
 展示论文库版本、分析状态、共识与争议入口。
 
 ### 五层知识图谱
 
-![知识图谱](docs/technical_document/evidence/06-knowledge-graph-component.png)
+![知识图谱](assets/screenshots/06-knowledge-graph-component.png)
 
 展示领域、主题、研究方向/变量、论文证据和学术综合之间的证据关系。
 
 ### AI 学习测评
 
-![学习测评](docs/technical_document/evidence/07-learning-assessment.png)
+![学习测评](assets/screenshots/07-learning-assessment.png)
 
 展示五模块组卷、答题、证据展开、五维评分和下一轮补学。
 
 ### 学习成长报告
 
-![学习成长报告](docs/technical_document/evidence/08-learning-report.png)
+![学习成长报告](assets/screenshots/08-learning-report.png)
 
 展示已测维度的练习表现、历史趋势、错题和推荐论文；未测维度显示“未测”。
 
-完整竞赛技术文档和更多证据见
-[`docs/technical_document/`](docs/technical_document/)。
+竞赛技术文档作为独立提交材料保存，不放入源代码仓库。
 
 ## 11. 工程与安全
 
@@ -426,7 +425,6 @@ demo/
 - [开发过程、Prompt 与历史评审材料](docs/history/README.md)
 - [演示说明](demo/README.md)
 - [安全、隐私与导出规范](docs/SECURITY_AND_PRIVACY.md)
-- [竞赛技术文档](docs/technical_document/体研智脑Agent_技术文档.pdf)
 
 ## License
 

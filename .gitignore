@@ -80,11 +80,14 @@ video_assets/
 *.srt
 *.ass
 
+# 技术文档作为独立比赛材料保存，不进入 GitHub 代码仓库
+/docs/technical_document/
+/技术文档.md
+/docs/history/old-submission-materials/
+
 # 论文全文、派生证据与可重建索引
 # 论文 PDF 是否可公开再分发必须逐篇核对许可，默认不进入 Git。
 *.pdf
-!docs/technical_document/*.pdf
-!docs/history/old-submission-materials/**/*.pdf
 knowledge_base/**
 !knowledge_base/README.md
 !knowledge_base/manifest.json

@@ -8,5 +8,6 @@
 - `old-submission-materials/`：2026-11-16 旧版提交材料，仅供追溯。包含已被
   当前技术文档取代的 PDF、DOCX、报告构建脚本和旧检查清单。
 
-归档内容不代表当前系统状态。当前架构、功能、测试和统计口径应以根目录
-`README.md` 与 `docs/technical_document/` 为准。
+归档内容不代表当前系统状态。当前架构、功能和测试口径应以根目录
+`README.md` 与 `docs/ARCHITECTURE.md` 为准；完整技术文档作为独立比赛材料
+保存，不放入源代码仓库。

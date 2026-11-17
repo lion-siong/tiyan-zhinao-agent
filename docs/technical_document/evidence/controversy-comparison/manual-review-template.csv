@@ -1,8 +1,0 @@
-question_id,question,project_v5_status,project_has_conflict_v5,baseline_raw_has_conflict,baseline_review_status,reviewer_name,reviewed_at,evidence_a_supports_claim_a,evidence_b_supports_claim_b,comparability_assessment,final_conflict_status,notes
-question:cardiorespiratory,体育锻炼与心肺耐力,一致未观察到显著差异,false,true,待人工复核,,,,,,,
-question:body-composition,体育锻炼与身体成分,初步共识,false,true,待人工复核,,,,,,,
-question:muscular-strength,体育锻炼与肌肉力量,一致未观察到显著差异,false,false,待人工复核,,,,,,,
-question:physical-fitness,体育锻炼与身体素质,一致未观察到显著差异,false,false,待人工复核,,,,,,,
-question:mental-health,体育锻炼与心理健康,一致未观察到显著差异,false,true,待人工复核,,,,,,,
-question:frequency,运动频率与健康效果,初步共识,false,false,待人工复核,,,,,,,
-question:intensity,运动强度与健康效果,一致未观察到显著差异,false,false,待人工复核,,,,,,,

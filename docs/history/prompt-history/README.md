@@ -5,4 +5,4 @@
 
 这些记录用于说明真实开发过程和问题迭代，不包含 API Key、密码、个人邮箱或
 本地数据库。记录中的历史结果可能早于当前版本；当前功能边界和测试结果以
-根目录 `README.md`、`docs/technical_document/` 和自动化测试为准。
+根目录 `README.md`、`docs/ARCHITECTURE.md` 和自动化测试为准。
