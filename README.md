@@ -423,6 +423,7 @@ demo/
 - [代码库审查报告](docs/CODEBASE_AUDIT_REPORT.md)
 - [最终验收报告](docs/FINAL_ACCEPTANCE_REPORT.md)
 - [比赛提交检查清单](docs/COMPETITION_SUBMISSION_CHECKLIST.md)
+- [开发过程、Prompt 与历史评审材料](docs/history/README.md)
 - [演示说明](demo/README.md)
 - [安全、隐私与导出规范](docs/SECURITY_AND_PRIVACY.md)
 - [竞赛技术文档](docs/technical_document/体研智脑Agent_技术文档.pdf)
