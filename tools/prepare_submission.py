@@ -46,6 +46,8 @@ IGNORED_NAMES = {
     ".tmp",
     ".venv",
     "backups",
+    "archive",
+    "old-submission-materials",
     "technical_document_backups",
     "pytest-full-verbose.txt",
     "pytest-results.xml",

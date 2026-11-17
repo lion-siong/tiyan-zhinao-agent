@@ -66,13 +66,25 @@ data/*
 **/Login Data
 **/Local State
 **/Web Data
-**/History
+
+# 本地视频制作工程和成片不进入源代码仓库
+real_demo_video/
+video_assets/
+参赛视频制作/
+*.mp4
+*.mkv
+*.mov
+*.webm
+*.wav
+*.mp3
+*.srt
+*.ass
 
 # 论文全文、派生证据与可重建索引
 # 论文 PDF 是否可公开再分发必须逐篇核对许可，默认不进入 Git。
 *.pdf
-!提交材料/体研智脑Agent_技术报告.pdf
 !docs/technical_document/*.pdf
+!docs/history/old-submission-materials/**/*.pdf
 knowledge_base/**
 !knowledge_base/README.md
 !knowledge_base/manifest.json
